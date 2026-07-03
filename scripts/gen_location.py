@@ -16,6 +16,21 @@ TEMPLATE = ROOT / "templates" / "ios-location-spoofer.sgmodule"
 DEFAULT_OUT = ROOT / "output" / "ios-location-spoofer.sgmodule"
 ARGUMENT_OUT = ROOT / "output" / "argument.txt"
 
+
+def load_dotenv() -> None:
+    env_path = ROOT / ".env"
+    if not env_path.is_file():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        os.environ.setdefault(key.strip(), val.strip())
+
+
+load_dotenv()
+
 PI = math.pi
 A = 6378245.0
 EE = 0.00669342162296594323

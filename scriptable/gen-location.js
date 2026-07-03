@@ -2,30 +2,30 @@
 
 const VERSION = "2.6";
 const CONFIG = {
-  amapKey: "在此填入高德Web服务Key",
-  hAcc: 10,
-  vAcc: 20,
+    amapKey: "8ad224cc1617bdfe92edd15167be87dc",
+    hAcc: 10,
+    vAcc: 20,
 };
 
 const PRESETS_CN = ["上海外滩", "北京天安门", "广州塔", "深圳", "香港", "台北"];
 const PRESETS_EN = [
-  { name: "Los Angeles", lat: 34.052235, lng: -118.243683, elevation: 71, sourceLabel: "预设" },
-  { name: "New York", lat: 40.712776, lng: -74.005974, elevation: 10, sourceLabel: "预设" },
-  { name: "London", lat: 51.507351, lng: -0.127758, elevation: 11, sourceLabel: "预设" },
-  { name: "Paris", lat: 48.856613, lng: 2.352222, elevation: 35, sourceLabel: "预设" },
-  { name: "Tokyo Tower", lat: 35.658581, lng: 139.745438, elevation: 52, sourceLabel: "预设" },
-  { name: "Hawaii (Honolulu)", lat: 21.306944, lng: -157.858337, elevation: 6, sourceLabel: "预设" },
-  { name: "Staples Center, LA", lat: 34.043017, lng: -118.267254, elevation: 92, sourceLabel: "预设" },
+    { name: "Los Angeles", lat: 34.052235, lng: -118.243683, elevation: 71, sourceLabel: "预设" },
+    { name: "New York", lat: 40.712776, lng: -74.005974, elevation: 10, sourceLabel: "预设" },
+    { name: "London", lat: 51.507351, lng: -0.127758, elevation: 11, sourceLabel: "预设" },
+    { name: "Paris", lat: 48.856613, lng: 2.352222, elevation: 35, sourceLabel: "预设" },
+    { name: "Tokyo Tower", lat: 35.658581, lng: 139.745438, elevation: 52, sourceLabel: "预设" },
+    { name: "Hawaii (Honolulu)", lat: 21.306944, lng: -157.858337, elevation: 6, sourceLabel: "预设" },
+    { name: "Staples Center, LA", lat: 34.043017, lng: -118.267254, elevation: 92, sourceLabel: "预设" },
 ];
 
 const BUILTIN_ALIASES = {};
 (function initAliases() {
-  const add = (keys, preset) => keys.forEach((k) => { BUILTIN_ALIASES[k.trim().toLowerCase()] = preset; });
-  PRESETS_EN.forEach((p) => add([p.name], p));
-  add(["staples center", "staples center, los angeles", "crypto.com arena", "洛杉矶斯台普斯"], PRESETS_EN[6]);
-  add(["hawaii", "honolulu", "夏威夷"], PRESETS_EN[5]);
-  add(["la", "los angeles, ca"], PRESETS_EN[0]);
-  add(["nyc", "new york city"], PRESETS_EN[1]);
+    const add = (keys, preset) => keys.forEach((k) => { BUILTIN_ALIASES[k.trim().toLowerCase()] = preset; });
+    PRESETS_EN.forEach((p) => add([p.name], p));
+    add(["staples center", "staples center, los angeles", "crypto.com arena", "洛杉矶斯台普斯"], PRESETS_EN[6]);
+    add(["hawaii", "honolulu", "夏威夷"], PRESETS_EN[5]);
+    add(["la", "los angeles, ca"], PRESETS_EN[0]);
+    add(["nyc", "new york city"], PRESETS_EN[1]);
 })();
 
 const PI = Math.PI;
@@ -33,69 +33,69 @@ const A = 6378245.0;
 const EE = 0.00669342162296594323;
 
 async function main() {
-  if (!CONFIG.amapKey || CONFIG.amapKey.includes("在此填入")) {
-    showPage(errorHtml("未配置高德 Key", "请编辑脚本顶部 CONFIG.amapKey"));
-    return;
-  }
-
-  try {
-    const place = await askPlace();
-    if (!place) return;
-
-    const placeName = typeof place === "string" ? place : place.name;
-    ping("正在查询", placeName);
-
-    const cands = await resolvePlace(place);
-    const chosen = await pickCandidate(cands);
-
-    let elev = chosen.elevation;
-    let elevWarn = false;
-    if (elev == null) elev = await fetchElevation(chosen.lat, chosen.lng);
-    if (elev == null) {
-      elev = 0;
-      elevWarn = true;
+    if (!CONFIG.amapKey || CONFIG.amapKey.includes("在此填入")) {
+        showPage(errorHtml("未配置高德 Key", "请编辑脚本顶部 CONFIG.amapKey"));
+        return;
     }
 
-    const altitude = Math.round(elev);
-    const argument = buildArgument(chosen.lat, chosen.lng, altitude);
-    saveArgument(argument);
-    Pasteboard.copyString(argument);
-    if (typeof Script !== "undefined" && Script.setShortcutOutput) {
-      Script.setShortcutOutput(argument);
-    }
+    try {
+        const place = await askPlace();
+        if (!place) return;
 
-    ping("定位已生成", chosen.name);
-    showPage(resultHtml(chosen, argument, altitude, elevWarn));
-  } catch (e) {
-    const msg = String((e && e.message) || e || "未知错误").trim() || "未知错误";
-    ping("查询失败", msg.slice(0, 80));
-    showPage(errorHtml("查询失败", msg));
-  }
+        const placeName = typeof place === "string" ? place : place.name;
+        ping("正在查询", placeName);
+
+        const cands = await resolvePlace(place);
+        const chosen = await pickCandidate(cands);
+
+        let elev = chosen.elevation;
+        let elevWarn = false;
+        if (elev == null) elev = await fetchElevation(chosen.lat, chosen.lng);
+        if (elev == null) {
+            elev = 0;
+            elevWarn = true;
+        }
+
+        const altitude = Math.round(elev);
+        const argument = buildArgument(chosen.lat, chosen.lng, altitude);
+        saveArgument(argument);
+        Pasteboard.copyString(argument);
+        if (typeof Script !== "undefined" && Script.setShortcutOutput) {
+            Script.setShortcutOutput(argument);
+        }
+
+        ping("定位已生成", chosen.name);
+        showPage(resultHtml(chosen, argument, altitude, elevWarn));
+    } catch (e) {
+        const msg = String((e && e.message) || e || "未知错误").trim() || "未知错误";
+        ping("查询失败", msg.slice(0, 80));
+        showPage(errorHtml("查询失败", msg));
+    }
 }
 
 function locDir() {
-  const fm = FileManager.iCloud();
-  const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
-  fm.createDirectory(dir, true);
-  return dir;
+    const fm = FileManager.iCloud();
+    const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
+    fm.createDirectory(dir, true);
+    return dir;
 }
 
 function writeLocFile(name, text) {
-  const path = FileManager.iCloud().joinPath(locDir(), name);
-  FileManager.iCloud().writeString(path, text);
-  return path;
+    const path = FileManager.iCloud().joinPath(locDir(), name);
+    FileManager.iCloud().writeString(path, text);
+    return path;
 }
 
 function esc(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
 }
 
 function pageShell(title, body) {
-  return `<!DOCTYPE html><html><head>
+    return `<!DOCTYPE html><html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>
@@ -127,13 +127,15 @@ h1{font-size:22px;font-weight:700;margin-bottom:6px;word-break:break-word}
 }
 
 function resultHtml(chosen, argument, altitude, elevWarn) {
-  const lat = chosen.lat.toFixed(6);
-  const lng = chosen.lng.toFixed(6);
-  const mapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=13&size=600x220&markers=${lat},${lng},red`;
-  const body = `
+    const lat = chosen.lat.toFixed(6);
+    const lng = chosen.lng.toFixed(6);
+    const mapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=13&size=600x220&markers=${lat},${lng},red`;
+    const body = `
+<div class="hero">
 <span class="badge ok">定位已生成</span>
 <h1>${esc(chosen.name)}</h1>
 <p class="sub">argument 已复制到剪贴板</p>
+</div>
 <div class="card">
   <h2>坐标信息</h2>
   <div class="grid">
@@ -158,258 +160,293 @@ function resultHtml(chosen, argument, altitude, elevWarn) {
     <li>设置 → 隐私 → 定位服务 关开一次</li>
   </ol>
 </div>`;
-  return pageShell("result", body);
+    return pageShell("result", body);
 }
 
 function errorHtml(title, message) {
-  const body = `
+    const body = `
+<div class="hero">
 <span class="badge err">${esc(title)}</span>
 <h1>${esc(title)}</h1>
+</div>
 <div class="card full"><div class="code">${esc(message)}</div></div>`;
-  return pageShell("error", body);
+    return pageShell("error", body);
 }
 
 function showPage(html) {
-  const wv = new WebView();
-  wv.loadHTML(html);
-  wv.present();
+    const wv = new WebView();
+    wv.loadHTML(html);
+    wv.present();
 }
 
 function showFile(path) {
-  QuickLook.present(path);
+    QuickLook.present(path);
 }
 
 function ping(title, body) {
-  try {
-    const n = new Notification();
-    n.title = title;
-    n.body = body;
-    n.schedule();
-  } catch (e) { /* ignore */ }
+    try {
+        const n = new Notification();
+        n.title = title;
+        n.body = body;
+        n.schedule();
+    } catch (e) { /* ignore */ }
 }
 
 function saveArgument(argument) {
-  writeLocFile("argument.txt", argument);
+    writeLocFile("argument.txt", argument);
 }
 
 async function shortAlert(title, message, actions) {
-  const a = new Alert();
-  a.title = title;
-  a.message = message;
-  actions.forEach((name) => a.addAction(name));
-  return await a.present();
+    const a = new Alert();
+    a.title = title;
+    a.message = message;
+    actions.forEach((name) => a.addAction(name));
+    return await a.present();
 }
 
 async function askFromClipboard() {
-  const t = (Pasteboard.paste() || "").trim();
-  if (!t) {
-    showPage(errorHtml("剪贴板为空", "请先复制地名再运行"));
-    return null;
-  }
-  const preview = t.length > 40 ? t.slice(0, 40) + "…" : t;
-  const idx = await shortAlert("确认查询", preview, ["开始查询"]);
-  return idx === 0 ? t : null;
+    const t = (Pasteboard.paste() || "").trim();
+    if (!t) {
+        showPage(errorHtml("剪贴板为空", "请先复制地名再运行"));
+        return null;
+    }
+    const preview = t.length > 40 ? t.slice(0, 40) + "…" : t;
+    const idx = await shortAlert("确认查询", preview, ["开始查询"]);
+    return idx === 0 ? t : null;
 }
 
 async function pickFromList(title, list) {
-  const a = new Alert();
-  a.title = title;
-  a.message = "点选查询";
-  list.forEach((item) => a.addAction(typeof item === "string" ? item : item.name));
-  a.addCancelAction("取消");
-  const idx = await a.present();
-  if (idx === -1) return null;
-  return list[idx] || null;
+    const a = new Alert();
+    a.title = title;
+    a.message = "点选查询";
+    list.forEach((item) => a.addAction(typeof item === "string" ? item : item.name));
+    a.addCancelAction("取消");
+    const idx = await a.present();
+    if (idx === -1) return null;
+    return list[idx] || null;
 }
 
 async function pickPresetCity() {
-  const idx = await shortAlert("常用城市", "选国内或国外", ["国内", "国外"]);
-  if (idx === 0) return await pickFromList("国内城市", PRESETS_CN);
-  if (idx === 1) return await pickFromList("国外城市", PRESETS_EN);
-  return null;
+    const idx = await shortAlert("常用城市", "选国内或国外", ["国内", "国外"]);
+    if (idx === 0) return await pickFromList("国内城市", PRESETS_CN);
+    if (idx === 1) return await pickFromList("国外城市", PRESETS_EN);
+    return null;
 }
 
 async function askPlace() {
-  if (args.shortcutParameter) {
-    const t = String(args.shortcutParameter).trim();
-    if (t) return t;
-  }
-  const a = new Alert();
-  a.title = "iOS定位 v" + VERSION;
-  a.message = "剪贴板 / 常用城市";
-  a.addAction("从剪贴板读取");
-  a.addAction("常用城市");
-  a.addCancelAction("取消");
-  const idx = await a.present();
-  if (idx === 0) return await askFromClipboard();
-  if (idx === 1) return await pickPresetCity();
-  return null;
+    if (args.shortcutParameter) {
+        const t = String(args.shortcutParameter).trim();
+        if (t) return t;
+    }
+    const a = new Alert();
+    a.title = "iOS定位 v" + VERSION;
+    a.message = "剪贴板 / 常用城市";
+    a.addAction("从剪贴板读取");
+    a.addAction("常用城市");
+    a.addCancelAction("取消");
+    const idx = await a.present();
+    if (idx === 0) return await askFromClipboard();
+    if (idx === 1) return await pickPresetCity();
+    return null;
 }
 
 function outOfChina(lat, lng) {
-  return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
+    return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
 }
 
 function tLat(x, y) {
-  let r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
-  r += (20 * Math.sin(6 * x * PI) + 20 * Math.sin(2 * x * PI)) * 2 / 3;
-  r += (20 * Math.sin(y * PI) + 40 * Math.sin(y / 3 * PI)) * 2 / 3;
-  r += (160 * Math.sin(y / 12 * PI) + 320 * Math.sin(y * PI / 30)) * 2 / 3;
-  return r;
+    let r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    r += (20 * Math.sin(6 * x * PI) + 20 * Math.sin(2 * x * PI)) * 2 / 3;
+    r += (20 * Math.sin(y * PI) + 40 * Math.sin(y / 3 * PI)) * 2 / 3;
+    r += (160 * Math.sin(y / 12 * PI) + 320 * Math.sin(y * PI / 30)) * 2 / 3;
+    return r;
 }
 
 function tLng(x, y) {
-  let r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
-  r += (20 * Math.sin(6 * x * PI) + 20 * Math.sin(2 * x * PI)) * 2 / 3;
-  r += (20 * Math.sin(x * PI) + 40 * Math.sin(x / 3 * PI)) * 2 / 3;
-  r += (150 * Math.sin(x / 12 * PI) + 300 * Math.sin(x / 30 * PI)) * 2 / 3;
-  return r;
+    let r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    r += (20 * Math.sin(6 * x * PI) + 20 * Math.sin(2 * x * PI)) * 2 / 3;
+    r += (20 * Math.sin(x * PI) + 40 * Math.sin(x / 3 * PI)) * 2 / 3;
+    r += (150 * Math.sin(x / 12 * PI) + 300 * Math.sin(x / 30 * PI)) * 2 / 3;
+    return r;
 }
 
 function wgs2gcj(lat, lng) {
-  if (outOfChina(lat, lng)) return [lat, lng];
-  let dLat = tLat(lng - 105, lat - 35);
-  let dLng = tLng(lng - 105, lat - 35);
-  const radLat = lat / 180 * PI;
-  let m = Math.sin(radLat);
-  m = 1 - EE * m * m;
-  const sm = Math.sqrt(m);
-  dLat = dLat * 180 / ((A * (1 - EE)) / (m * sm) * PI);
-  dLng = dLng * 180 / (A / sm * Math.cos(radLat) * PI);
-  return [lat + dLat, lng + dLng];
+    if (outOfChina(lat, lng)) return [lat, lng];
+    let dLat = tLat(lng - 105, lat - 35);
+    let dLng = tLng(lng - 105, lat - 35);
+    const radLat = lat / 180 * PI;
+    let m = Math.sin(radLat);
+    m = 1 - EE * m * m;
+    const sm = Math.sqrt(m);
+    dLat = dLat * 180 / ((A * (1 - EE)) / (m * sm) * PI);
+    dLng = dLng * 180 / (A / sm * Math.cos(radLat) * PI);
+    return [lat + dLat, lng + dLng];
 }
 
 function gcj2wgs(lat, lng) {
-  if (outOfChina(lat, lng)) return [lat, lng];
-  let wlat = lat, wlng = lng;
-  for (let i = 0; i < 3; i++) {
-    const g = wgs2gcj(wlat, wlng);
-    wlat += lat - g[0];
-    wlng += lng - g[1];
-  }
-  return [wlat, wlng];
+    if (outOfChina(lat, lng)) return [lat, lng];
+    let wlat = lat, wlng = lng;
+    for (let i = 0; i < 3; i++) {
+        const g = wgs2gcj(wlat, wlng);
+        wlat += lat - g[0];
+        wlng += lng - g[1];
+    }
+    return [wlat, wlng];
 }
 
 async function httpJson(url, headers) {
-  const req = new Request(url);
-  req.timeoutInterval = 10;
-  if (headers) req.headers = headers;
-  return await req.loadJSON();
+    const req = new Request(url);
+    req.timeoutInterval = 10;
+    if (headers) req.headers = headers;
+    return await req.loadJSON();
+}
+
+const FOREIGN_CITIES_ZH =
+    "芝加哥|纽约|洛杉矶|旧金山|西雅图|波士顿|华盛顿|费城|迈阿密|休斯敦|休斯顿|拉斯维加斯|檀香山|夏威夷|丹佛|亚特兰大|圣地亚哥|多伦多|温哥华|蒙特利尔|伦敦|巴黎|柏林|东京|大阪|京都|首尔|悉尼|墨尔本|新加坡|曼谷|迪拜";
+const FOREIGN_CITY_RE = new RegExp(FOREIGN_CITIES_ZH);
+const CITY_ZH_TO_EN = {
+    芝加哥: "Chicago", 纽约: "New York", 洛杉矶: "Los Angeles", 旧金山: "San Francisco",
+    西雅图: "Seattle", 波士顿: "Boston", 华盛顿: "Washington", 费城: "Philadelphia",
+    迈阿密: "Miami", 休斯敦: "Houston", 休斯顿: "Houston", 拉斯维加斯: "Las Vegas",
+    檀香山: "Honolulu", 夏威夷: "Honolulu", 丹佛: "Denver", 亚特兰大: "Atlanta",
+    圣地亚哥: "San Diego", 多伦多: "Toronto", 温哥华: "Vancouver", 蒙特利尔: "Montreal",
+    伦敦: "London", 巴黎: "Paris", 柏林: "Berlin", 东京: "Tokyo", 大阪: "Osaka",
+    京都: "Kyoto", 首尔: "Seoul", 悉尼: "Sydney", 墨尔本: "Melbourne",
+    新加坡: "Singapore", 曼谷: "Bangkok", 迪拜: "Dubai",
+};
+const DOMESTIC_MARKERS =
+    /(北京|上海|广州|深圳|香港|台北|澳门|中国|省|市|区|县|路|街|镇|村|外滩|天安门|塔)/;
+
+function isLikelyInternational(query) {
+    const q = String(query || "").trim();
+    if (/[a-zA-Z]/.test(q)) return true;
+    if (FOREIGN_CITY_RE.test(q)) return true;
+    return !DOMESTIC_MARKERS.test(q);
+}
+
+function normalizeIntlGeocodeQuery(query) {
+    const q = String(query || "").trim();
+    if (!isLikelyInternational(q)) return q;
+    const m = q.match(
+        new RegExp("^(" + FOREIGN_CITIES_ZH + ")\\s*(?:的)?\\s*(?:中国城|唐人街|华埠)$")
+    );
+    if (m) {
+        const en = CITY_ZH_TO_EN[m[1]] || m[1];
+        return "Chinatown, " + en;
+    }
+    return q;
 }
 
 async function geocodeAmap(query) {
-  const url = `https://restapi.amap.com/v3/geocode/geo?key=${CONFIG.amapKey}&address=${encodeURIComponent(query)}&output=json`;
-  const data = await httpJson(url);
-  if (data.status !== "1") throw new Error(data.info || "高德失败");
-  const out = [];
-  for (const item of data.geocodes || []) {
-    const loc = item.location || "";
-    if (!loc.includes(",")) continue;
-    const [lngS, latS] = loc.split(",");
-    const wgs = gcj2wgs(parseFloat(latS), parseFloat(lngS));
-    out.push({
-      name: item.formatted_address || query,
-      lat: wgs[0],
-      lng: wgs[1],
-      sourceLabel: "高德",
-      elevation: null,
-    });
-  }
-  return out;
+    const url = `https://restapi.amap.com/v3/geocode/geo?key=${CONFIG.amapKey}&address=${encodeURIComponent(query)}&output=json`;
+    const data = await httpJson(url);
+    if (data.status !== "1") throw new Error(data.info || "高德失败");
+    const out = [];
+    for (const item of data.geocodes || []) {
+        const loc = item.location || "";
+        if (!loc.includes(",")) continue;
+        const [lngS, latS] = loc.split(",");
+        const wgs = gcj2wgs(parseFloat(latS), parseFloat(lngS));
+        out.push({
+            name: item.formatted_address || query,
+            lat: wgs[0],
+            lng: wgs[1],
+            sourceLabel: "高德",
+            elevation: null,
+        });
+    }
+    return out;
 }
 
 async function geocodeOpenMeteo(query) {
-  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=10&language=zh`;
-  const data = await httpJson(url);
-  const out = [];
-  for (const item of data.results || []) {
-    const name = [item.name, item.admin1, item.country].filter(Boolean).join(", ");
-    out.push({
-      name,
-      lat: item.latitude,
-      lng: item.longitude,
-      sourceLabel: "Open-Meteo",
-      elevation: item.elevation != null ? item.elevation : null,
-    });
-  }
-  return out;
+    const geoQuery = normalizeIntlGeocodeQuery(query);
+    const lang = isLikelyInternational(query) ? "en" : "zh";
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(geoQuery)}&count=10&language=${lang}`;
+    const data = await httpJson(url);
+    const out = [];
+    for (const item of data.results || []) {
+        const name = [item.name, item.admin1, item.country].filter(Boolean).join(", ");
+        out.push({
+            name,
+            lat: item.latitude,
+            lng: item.longitude,
+            sourceLabel: "Open-Meteo",
+            elevation: item.elevation != null ? item.elevation : null,
+        });
+    }
+    return out;
 }
 
 async function geocodeNominatim(query) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=10&accept-language=zh`;
-  const data = await httpJson(url, { "User-Agent": "ios-location-spoofer-scriptable/1.0" });
-  return (data || []).map((item) => ({
-    name: item.display_name || query,
-    lat: parseFloat(item.lat),
-    lng: parseFloat(item.lon),
-    sourceLabel: "Nominatim",
-    elevation: null,
-  }));
+    const geoQuery = normalizeIntlGeocodeQuery(query);
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(geoQuery)}&format=json&limit=10&accept-language=zh`;
+    const data = await httpJson(url, { "User-Agent": "ios-location-spoofer-scriptable/1.0" });
+    return (data || []).map((item) => ({
+        name: item.display_name || query,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+        sourceLabel: "Nominatim",
+        elevation: null,
+    }));
 }
 
 function lookupBuiltin(query) {
-  return BUILTIN_ALIASES[String(query || "").trim().toLowerCase()] || null;
+    return BUILTIN_ALIASES[String(query || "").trim().toLowerCase()] || null;
 }
 
 async function resolvePlace(place) {
-  if (place && typeof place === "object" && place.lat != null) return [place];
-  const builtin = lookupBuiltin(place);
-  if (builtin) return [builtin];
-  return await resolveCandidates(place);
-}
-
-function isLikelyInternational(query) {
-  const q = String(query || "").trim();
-  if (/[a-zA-Z]/.test(q)) return true;
-  return !/(北京|上海|广州|深圳|香港|台北|澳门|中国|省|市|区|县|路|街|镇|村|外滩|天安门|塔)/.test(q);
+    if (place && typeof place === "object" && place.lat != null) return [place];
+    const builtin = lookupBuiltin(place);
+    if (builtin) return [builtin];
+    return await resolveCandidates(place);
 }
 
 async function resolveCandidates(query) {
-  const errors = [];
-  const intl = isLikelyInternational(query);
-  const chain = intl
-    ? [() => geocodeOpenMeteo(query), () => geocodeNominatim(query), () => geocodeAmap(query)]
-    : [() => geocodeAmap(query), () => geocodeOpenMeteo(query), () => geocodeNominatim(query)];
-  for (const fn of chain) {
-    try {
-      const cands = await fn();
-      if (cands.length) return cands;
-    } catch (e) {
-      errors.push(String(e.message || e));
+    const errors = [];
+    const intl = isLikelyInternational(query);
+    const chain = intl
+        ? [() => geocodeOpenMeteo(query), () => geocodeNominatim(query), () => geocodeAmap(query)]
+        : [() => geocodeAmap(query), () => geocodeOpenMeteo(query), () => geocodeNominatim(query)];
+    for (const fn of chain) {
+        try {
+            const cands = await fn();
+            if (cands.length) return cands;
+        } catch (e) {
+            errors.push(String(e.message || e));
+        }
     }
-  }
-  throw new Error(`找不到: ${query}\n${errors.join("\n")}`);
+    throw new Error(`找不到: ${query}\n${errors.join("\n")}`);
 }
 
 async function pickCandidate(cands) {
-  if (cands.length === 1) return cands[0];
-  const a = new Alert();
-  a.title = "选择地点";
-  a.message = `共 ${cands.length} 个候选`;
-  cands.forEach((c, i) => {
-    const short = c.name.length > 24 ? c.name.slice(0, 24) + "…" : c.name;
-    a.addAction(`${i + 1}.${short}`);
-  });
-  a.addCancelAction("取消");
-  const idx = await a.present();
-  if (idx === -1) throw new Error("已取消");
-  const chosen = cands[idx];
-  if (!chosen) throw new Error("选择无效");
-  return chosen;
+    if (cands.length === 1) return cands[0];
+    const a = new Alert();
+    a.title = "选择地点";
+    a.message = `共 ${cands.length} 个候选`;
+    cands.forEach((c, i) => {
+        const short = c.name.length > 24 ? c.name.slice(0, 24) + "…" : c.name;
+        a.addAction(`${i + 1}.${short}`);
+    });
+    a.addCancelAction("取消");
+    const idx = await a.present();
+    if (idx === -1) throw new Error("已取消");
+    const chosen = cands[idx];
+    if (!chosen) throw new Error("选择无效");
+    return chosen;
 }
 
 async function fetchElevation(lat, lng) {
-  try {
-    const url = `https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lng}`;
-    const data = await httpJson(url);
-    const vals = data.elevation || [];
-    if (vals.length && vals[0] != null) return vals[0];
-  } catch (e) { /* ignore */ }
-  return null;
+    try {
+        const url = `https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lng}`;
+        const data = await httpJson(url);
+        const vals = data.elevation || [];
+        if (vals.length && vals[0] != null) return vals[0];
+    } catch (e) { /* ignore */ }
+    return null;
 }
 
 function buildArgument(lat, lng, altitude) {
-  return `mode=response&latitude=${lat.toFixed(6)}&longitude=${lng.toFixed(6)}&horizontalAccuracy=${CONFIG.hAcc}&verticalAccuracy=${CONFIG.vAcc}&altitude=${altitude}&debug=false`;
+    return `mode=response&latitude=${lat.toFixed(6)}&longitude=${lng.toFixed(6)}&horizontalAccuracy=${CONFIG.hAcc}&verticalAccuracy=${CONFIG.vAcc}&altitude=${altitude}&debug=false`;
 }
 
 await main();

@@ -136,9 +136,51 @@ def geocode_amap(query: str, key: str) -> list[Candidate]:
     return out
 
 
-def geocode_openmeteo(query: str) -> list[Candidate]:
+FOREIGN_CITIES_ZH = (
+    "芝加哥|纽约|洛杉矶|旧金山|西雅图|波士顿|华盛顿|费城|迈阿密|休斯敦|休斯顿|拉斯维加斯|"
+    "檀香山|夏威夷|丹佛|亚特兰大|圣地亚哥|多伦多|温哥华|蒙特利尔|伦敦|巴黎|柏林|东京|大阪|京都|"
+    "首尔|悉尼|墨尔本|新加坡|曼谷|迪拜"
+)
+CITY_ZH_TO_EN = {
+    "芝加哥": "Chicago", "纽约": "New York", "洛杉矶": "Los Angeles", "旧金山": "San Francisco",
+    "西雅图": "Seattle", "波士顿": "Boston", "华盛顿": "Washington", "费城": "Philadelphia",
+    "迈阿密": "Miami", "休斯敦": "Houston", "休斯顿": "Houston", "拉斯维加斯": "Las Vegas",
+    "檀香山": "Honolulu", "夏威夷": "Honolulu", "丹佛": "Denver", "亚特兰大": "Atlanta",
+    "圣地亚哥": "San Diego", "多伦多": "Toronto", "温哥华": "Vancouver", "蒙特利尔": "Montreal",
+    "伦敦": "London", "巴黎": "Paris", "柏林": "Berlin", "东京": "Tokyo", "大阪": "Osaka",
+    "京都": "Kyoto", "首尔": "Seoul", "悉尼": "Sydney", "墨尔本": "Melbourne",
+    "新加坡": "Singapore", "曼谷": "Bangkok", "迪拜": "Dubai",
+}
+DOMESTIC_MARKERS = re.compile(
+    r"(北京|上海|广州|深圳|香港|台北|澳门|中国|省|市|区|县|路|街|镇|村|外滩|天安门|塔)"
+)
+
+
+def is_likely_international(query: str) -> bool:
+    q = query.strip()
+    if re.search(r"[a-zA-Z]", q):
+        return True
+    if re.search(FOREIGN_CITIES_ZH, q):
+        return True
+    return not DOMESTIC_MARKERS.search(q)
+
+
+def normalize_intl_geocode_query(query: str) -> str:
+    q = query.strip()
+    if not is_likely_international(q):
+        return q
+    m = re.match(rf"^({FOREIGN_CITIES_ZH})\s*(?:的)?\s*(?:中国城|唐人街|华埠)$", q)
+    if m:
+        en = CITY_ZH_TO_EN.get(m.group(1), m.group(1))
+        return f"Chinatown, {en}"
+    return q
+
+
+def geocode_openmeteo(query: str, *, language: str | None = None) -> list[Candidate]:
+    geo_query = normalize_intl_geocode_query(query)
+    lang = language or ("en" if is_likely_international(query) else "zh")
     url = "https://geocoding-api.open-meteo.com/v1/search?" + urllib.parse.urlencode({
-        "name": query, "count": 10, "language": "zh",
+        "name": geo_query, "count": 10, "language": lang,
     })
     data = http_json(url)
     out: list[Candidate] = []
@@ -159,8 +201,9 @@ def geocode_openmeteo(query: str) -> list[Candidate]:
 
 
 def geocode_nominatim(query: str) -> list[Candidate]:
+    geo_query = normalize_intl_geocode_query(query)
     url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode({
-        "q": query, "format": "json", "limit": 10, "accept-language": "zh",
+        "q": geo_query, "format": "json", "limit": 10, "accept-language": "zh",
     })
     data = http_json(url, headers={"User-Agent": "ios-location-spoofer/1.0 (Peauntxja)"})
     out: list[Candidate] = []
@@ -191,7 +234,11 @@ def fetch_elevation(lat: float, lng: float) -> float | None:
 def resolve_candidates(query: str, provider: str, amap_key: str | None) -> list[Candidate]:
     chain: list[str]
     if provider == "auto":
-        chain = ["amap", "openmeteo", "nominatim"]
+        chain = (
+            ["openmeteo", "nominatim", "amap"]
+            if is_likely_international(query)
+            else ["amap", "openmeteo", "nominatim"]
+        )
     else:
         chain = [provider]
 

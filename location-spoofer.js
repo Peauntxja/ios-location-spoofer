@@ -1031,6 +1031,151 @@
     });
   }
 
+  var FOREIGN_CITIES_ZH =
+    "芝加哥|纽约|洛杉矶|旧金山|西雅图|波士顿|华盛顿|费城|迈阿密|休斯敦|休斯顿|拉斯维加斯|檀香山|夏威夷|丹佛|亚特兰大|圣地亚哥|多伦多|温哥华|蒙特利尔|伦敦|巴黎|柏林|东京|大阪|京都|首尔|悉尼|墨尔本|新加坡|曼谷|迪拜";
+  var FOREIGN_CITY_RE = new RegExp(FOREIGN_CITIES_ZH);
+  var CITY_ZH_TO_EN = {
+    芝加哥: "Chicago", 纽约: "New York", 洛杉矶: "Los Angeles", 旧金山: "San Francisco",
+    西雅图: "Seattle", 波士顿: "Boston", 华盛顿: "Washington", 费城: "Philadelphia",
+    迈阿密: "Miami", 休斯敦: "Houston", 休斯顿: "Houston", 拉斯维加斯: "Las Vegas",
+    檀香山: "Honolulu", 夏威夷: "Honolulu", 丹佛: "Denver", 亚特兰大: "Atlanta",
+    圣地亚哥: "San Diego", 多伦多: "Toronto", 温哥华: "Vancouver", 蒙特利尔: "Montreal",
+    伦敦: "London", 巴黎: "Paris", 柏林: "Berlin", 东京: "Tokyo", 大阪: "Osaka",
+    京都: "Kyoto", 首尔: "Seoul", 悉尼: "Sydney", 墨尔本: "Melbourne",
+    新加坡: "Singapore", 曼谷: "Bangkok", 迪拜: "Dubai"
+  };
+
+  function isLikelyInternational(query) {
+    var q = String(query || "").trim();
+    if (/[a-zA-Z]/.test(q)) {
+      return true;
+    }
+    if (FOREIGN_CITY_RE.test(q)) {
+      return true;
+    }
+    return !/(北京|上海|广州|深圳|香港|台北|澳门|中国|省|市|区|县|路|街|镇|村|外滩|天安门|塔)/.test(q);
+  }
+
+  function normalizeIntlGeocodeQuery(query) {
+    var q = String(query || "").trim();
+    if (!isLikelyInternational(q)) {
+      return q;
+    }
+    var m = q.match(
+      new RegExp("^(" + FOREIGN_CITIES_ZH + ")\\s*(?:的)?\\s*(?:中国城|唐人街|华埠)$")
+    );
+    if (m) {
+      var en = CITY_ZH_TO_EN[m[1]] || m[1];
+      return "Chinatown, " + en;
+    }
+    return q;
+  }
+
+  function finishGeocodeEntry(query, lat, lng, displayName, debug, callback) {
+    var entry = {
+      address: query,
+      latitude: lat,
+      longitude: lng,
+      displayName: displayName || query
+    };
+    fetchElevation(lat, lng, function (altitude) {
+      if (altitude != null) {
+        entry.altitude = altitude;
+      }
+      writeGeocodeCache(entry);
+      if (debug) {
+        console.log(
+          "Location spoofer geocode resolved: " +
+            query +
+            " -> " +
+            lat +
+            "," +
+            lng +
+            (altitude != null ? ", alt=" + altitude : "")
+        );
+      }
+      callback(entry);
+    });
+  }
+
+  function geocodeNominatim(query, debug, callback) {
+    var geoQuery = normalizeIntlGeocodeQuery(query);
+    var url =
+      "https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=0&q=" +
+      encodeURIComponent(geoQuery);
+    $httpClient.get(
+      {
+        url: url,
+        timeout: 8000,
+        headers: { "User-Agent": "ios-location-spoofer/1.0 (Loon plugin)" }
+      },
+      function (error, response, body) {
+        if (error || !body) {
+          callback(null);
+          return;
+        }
+        try {
+          var results = JSON.parse(body);
+          if (!results || !results.length) {
+            callback(null);
+            return;
+          }
+          var hit = results[0];
+          var lat = Number(hit.lat);
+          var lng = Number(hit.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            callback(null);
+            return;
+          }
+          finishGeocodeEntry(query, lat, lng, hit.display_name || query, debug, callback);
+        } catch (err) {
+          if (debug) {
+            console.log("Location spoofer geocode parse failed: " + err.message);
+          }
+          callback(null);
+        }
+      }
+    );
+  }
+
+  function geocodeOpenMeteo(query, debug, callback) {
+    var geoQuery = normalizeIntlGeocodeQuery(query);
+    var lang = isLikelyInternational(query) ? "en" : "zh";
+    var url =
+      "https://geocoding-api.open-meteo.com/v1/search?name=" +
+      encodeURIComponent(geoQuery) +
+      "&count=1&language=" +
+      lang;
+    $httpClient.get({ url: url, timeout: 8000 }, function (error, response, body) {
+      if (error || !body) {
+        callback(null);
+        return;
+      }
+      try {
+        var data = JSON.parse(body);
+        var results = data && data.results;
+        if (!results || !results.length) {
+          callback(null);
+          return;
+        }
+        var hit = results[0];
+        var lat = Number(hit.latitude);
+        var lng = Number(hit.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          callback(null);
+          return;
+        }
+        var name = [hit.name, hit.admin1, hit.country].filter(Boolean).join(", ") || query;
+        finishGeocodeEntry(query, lat, lng, name, debug, callback);
+      } catch (err) {
+        if (debug) {
+          console.log("Location spoofer geocode parse failed: " + err.message);
+        }
+        callback(null);
+      }
+    });
+  }
+
   function geocodeAddress(address, debug, callback) {
     var query = String(address || "").trim();
     if (!query) {
@@ -1055,71 +1200,21 @@
       return;
     }
 
-    var url =
-      "https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=0&q=" +
-      encodeURIComponent(query);
-    $httpClient.get(
-      {
-        url: url,
-        timeout: 8000,
-        headers: { "User-Agent": "ios-location-spoofer/1.0 (Loon plugin)" }
-      },
-      function (error, response, body) {
-        if (error || !body) {
-          if (debug) {
-            console.log("Location spoofer geocode failed: " + (error || "empty body"));
-          }
-          callback(null);
-          return;
-        }
-        try {
-          var results = JSON.parse(body);
-          if (!results || !results.length) {
-            if (debug) {
-              console.log("Location spoofer geocode no result for: " + query);
-            }
-            callback(null);
-            return;
-          }
-          var hit = results[0];
-          var lat = Number(hit.lat);
-          var lng = Number(hit.lon);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            callback(null);
-            return;
-          }
-          var entry = {
-            address: query,
-            latitude: lat,
-            longitude: lng,
-            displayName: hit.display_name || query
-          };
-          fetchElevation(lat, lng, function (altitude) {
-            if (altitude != null) {
-              entry.altitude = altitude;
-            }
-            writeGeocodeCache(entry);
-            if (debug) {
-              console.log(
-                "Location spoofer geocode resolved: " +
-                  query +
-                  " -> " +
-                  lat +
-                  "," +
-                  lng +
-                  (altitude != null ? ", alt=" + altitude : "")
-              );
-            }
-            callback(entry);
-          });
-        } catch (err) {
-          if (debug) {
-            console.log("Location spoofer geocode parse failed: " + err.message);
-          }
-          callback(null);
-        }
+    var intl = isLikelyInternational(query);
+    var primary = intl ? geocodeOpenMeteo : geocodeNominatim;
+    var fallback = intl ? geocodeNominatim : geocodeOpenMeteo;
+    primary(query, debug, function (entry) {
+      if (entry) {
+        callback(entry);
+        return;
       }
-    );
+      fallback(query, debug, function (entry2) {
+        if (!entry2 && debug) {
+          console.log("Location spoofer geocode no result for: " + query);
+        }
+        callback(entry2);
+      });
+    });
   }
 
   function mergeConfig(base, extra) {

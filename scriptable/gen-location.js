@@ -1,6 +1,7 @@
-// iOS Location Spoofer · Scriptable v1.6
+// iOS Location Spoofer · Scriptable v1.7
 
-const VERSION = "1.6";
+const VERSION = "1.7";
+const QUERY_TIMEOUT_MS = 30000;
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
   hAcc: 10,
@@ -18,7 +19,11 @@ async function main() {
 
     ping("正在查询", `「${place}」\n获取经纬度与海拔，约 3～10 秒`);
 
-    const cands = await resolveCandidates(place);
+    const cands = await withTimeout(
+      resolveCandidates(place),
+      QUERY_TIMEOUT_MS,
+      `查询「${place}」超时\n请检查网络，或换更具体的地名/地址`
+    );
     const chosen = await pickCandidate(cands);
 
     let elev = chosen.elevation;
@@ -41,12 +46,22 @@ async function main() {
     ping("定位已生成", `${chosen.name}\n已复制到剪贴板`);
     await showResult(chosen, argument, altitude, elevWarn);
   } catch (e) {
-    const msg = String(e && (e.message || e) || "未知错误");
+    const msg = String((e && e.message) || e || "未知错误").trim() || "未知错误";
     ping("查询失败", msg);
-    const err = new Alert("出错了", msg);
+    const err = new Alert("查询失败", msg);
     err.addAction("好");
     await err.present();
   }
+}
+
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = Script.setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (v) => { Script.clearTimeout(timer); resolve(v); },
+      (e) => { Script.clearTimeout(timer); reject(e); }
+    );
+  });
 }
 
 function ping(title, body) {
@@ -154,13 +169,7 @@ button{width:100%;padding:14px;margin-top:12px;font-size:17px;border:none;border
 function go(){
   var v=document.getElementById('t').value.trim();
   if(!v){alert('请输入地名');return;}
-  document.body.innerHTML='<div style="text-align:center;padding:80px 20px;font-family:-apple-system">'
-    +'<div style="width:40px;height:40px;border:4px solid #ddd;border-top-color:#007aff;border-radius:50%;margin:0 auto 20px;animation:spin .8s linear infinite"></div>'
-    +'<style>@keyframes spin{to{transform:rotate(360deg)}}</style>'
-    +'<p style="font-size:18px;font-weight:600">正在查询</p>'
-    +'<p style="color:#007aff">'+v+'</p>'
-    +'<p style="color:#666;font-size:14px">约需 3～10 秒…</p></div>';
-  setTimeout(function(){ window.location='input://'+encodeURIComponent(v); }, 120);
+  window.location='input://'+encodeURIComponent(v);
 }
 document.getElementById('t').addEventListener('keydown',function(e){if(e.key==='Enter')go();});
 </script></body></html>`;
@@ -184,7 +193,15 @@ async function askPlace() {
   alert.addAction("从剪贴板读取");
   alert.addCancelAction("取消");
   const idx = await alert.present();
-  if (idx === 0) return await inputText("输入地名", "例如：洛杉矶、夏威夷");
+  if (idx === 0) {
+    const t = await inputText("输入地名", "城市/地址，如：洛杉矶");
+    if (!t) {
+      const a = new Alert("已取消", "未输入地名");
+      a.addAction("好");
+      await a.present();
+    }
+    return t;
+  }
   if (idx === 1) {
     const t = (Pasteboard.paste() || "").trim();
     if (!t) {
@@ -244,7 +261,7 @@ function gcj2wgs(lat, lng) {
 
 async function httpJson(url, headers) {
   const req = new Request(url);
-  req.timeoutInterval = 15;
+  req.timeoutInterval = 10;
   if (headers) req.headers = headers;
   return await req.loadJSON();
 }
@@ -317,7 +334,9 @@ async function resolveCandidates(query) {
       errors.push(String(e.message || e));
     }
   }
-  throw new Error("找不到地点\n" + errors.join("\n"));
+  throw new Error(
+    `找不到「${query}」\n\n建议：\n· 用城市/地标，如「洛杉矶」\n· 店名/球队名请改成具体地址\n· 国外地址尽量用英文`
+  );
 }
 
 async function pickCandidate(cands) {
@@ -329,8 +348,10 @@ async function pickCandidate(cands) {
   });
   alert.addCancelAction("取消");
   const idx = await alert.present();
-  if (idx === -1) throw new Error("已取消");
-  return cands[idx];
+  if (idx === -1) throw new Error("已取消选择");
+  const chosen = cands[idx];
+  if (!chosen) throw new Error("选择无效，请重试");
+  return chosen;
 }
 
 async function fetchElevation(lat, lng) {

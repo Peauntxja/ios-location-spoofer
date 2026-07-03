@@ -105,7 +105,6 @@ function done(){ window.location='done://ok'; }
     const wv = new WebView();
     wv.shouldAllowRequest = (req) => {
       if (req.url.startsWith("done://")) {
-        wv.close();
         resolve();
         return false;
       }

@@ -1,3 +1,4 @@
 .env
+config/shadowrocket-base.conf
 output/*
 !output/.gitignore

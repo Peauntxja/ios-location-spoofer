@@ -13,7 +13,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "templates" / "ios-location-spoofer.sgmodule"
-DEFAULT_OUT = ROOT / "output" / "ios-location-spoofer.sgmodule"
+BASE_CONFIG = ROOT / "config" / "shadowrocket-base.conf"
+DEFAULT_OUT = ROOT / "output" / "shadowrocket-module.conf"
+SGMODULE_OUT = ROOT / "output" / "ios-location-spoofer.sgmodule"
 ARGUMENT_OUT = ROOT / "output" / "argument.txt"
 
 
@@ -259,10 +261,21 @@ def render_sgmodule(argument: str) -> str:
     )
 
 
+def render_full_config(argument: str, base_path: Path) -> str:
+    text = base_path.read_text(encoding="utf-8")
+    return re.sub(
+        r"argument=[^\n]+",
+        f"argument={argument}",
+        text,
+        count=1,
+    )
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="地名 → Shadowrocket 定位配置生成器")
     p.add_argument("place", help="地名或详细地址")
-    p.add_argument("-o", "--output", type=Path, default=DEFAULT_OUT, help="输出 sgmodule 路径")
+    p.add_argument("-o", "--output", type=Path, default=DEFAULT_OUT, help="输出完整 Shadowrocket 配置路径")
+    p.add_argument("--base", type=Path, default=BASE_CONFIG, help="完整配置模板（只改 argument=）")
     p.add_argument("--provider", choices=["auto", "amap", "openmeteo", "nominatim"], default="auto")
     p.add_argument("--h-acc", type=int, default=10, help="horizontalAccuracy")
     p.add_argument("--v-acc", type=int, default=20, help="verticalAccuracy")
@@ -295,10 +308,18 @@ def main() -> None:
     print(argument)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(render_sgmodule(argument), encoding="utf-8")
+    if not args.base.is_file():
+        raise SystemExit(f"找不到配置模板: {args.base}\n请从 Shadowrocket 导出完整模块配置，保存为该文件")
+
+    full_config = render_full_config(argument, args.base)
+    args.output.write_text(full_config, encoding="utf-8")
     ARGUMENT_OUT.write_text(argument + "\n", encoding="utf-8")
+    if TEMPLATE.is_file():
+        SGMODULE_OUT.write_text(render_sgmodule(argument), encoding="utf-8")
     print(f"\n已生成: {args.output}")
     print(f"已生成: {ARGUMENT_OUT}")
+    if TEMPLATE.is_file():
+        print(f"已生成: {SGMODULE_OUT}")
 
 
 if __name__ == "__main__":

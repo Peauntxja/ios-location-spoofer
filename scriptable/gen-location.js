@@ -1,6 +1,7 @@
-// iOS Location Spoofer · Scriptable 版
-// 输出在剪贴板 + Scriptable 文档目录 argument.txt（文件 App 可查看）
+// iOS Location Spoofer · Scriptable v1.4
+// 输出：剪贴板 + 文件 App → iCloud Drive → Scriptable → location-spoofer → argument.txt
 
+const VERSION = "1.4";
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
   hAcc: 10,
@@ -16,10 +17,6 @@ async function main() {
     const place = await askPlace();
     if (!place) return;
 
-    const wait = new Alert("正在查询", `${place}\n请稍候…`);
-    wait.addAction(" ");
-    wait.present();
-
     const cands = await resolveCandidates(place);
     const chosen = await pickCandidate(cands);
 
@@ -33,14 +30,14 @@ async function main() {
 
     const altitude = Math.round(elev);
     const argument = buildArgument(chosen.lat, chosen.lng, altitude);
-    const savedPath = saveArgument(argument);
+    saveArgument(argument);
 
     Pasteboard.copyString(argument);
     if (typeof Script !== "undefined" && Script.setShortcutOutput) {
       Script.setShortcutOutput(argument);
     }
 
-    await showResult(chosen, argument, altitude, elevWarn, savedPath);
+    await showResult(chosen, argument, altitude, elevWarn);
   } catch (e) {
     const err = new Alert("出错了", String(e.message || e));
     err.addAction("好");
@@ -52,12 +49,10 @@ function saveArgument(argument) {
   const fm = FileManager.iCloud();
   const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
   fm.createDirectory(dir, true);
-  const path = fm.joinPath(dir, "argument.txt");
-  fm.writeString(path, argument);
-  return path;
+  fm.writeString(fm.joinPath(dir, "argument.txt"), argument);
 }
 
-async function showResult(chosen, argument, altitude, elevWarn, savedPath) {
+async function showResult(chosen, argument, altitude, elevWarn) {
   const elevNote = elevWarn ? "<p style='color:#ff9500'>⚠️ 海拔查询失败，已用 0</p>" : "";
   const html = `<!DOCTYPE html>
 <html><head>
@@ -75,13 +70,13 @@ button{width:100%;padding:14px;margin-top:10px;font-size:17px;border:none;border
 .tip{font-size:13px;color:#666;margin-top:8px}
 </style></head><body>
 <div class="card">
-<h2>✅ 定位参数已生成</h2>
+<h2>✅ 定位参数已生成 (v${VERSION})</h2>
 <p><b>${esc(chosen.name)}</b></p>
 <p>来源: ${esc(chosen.sourceLabel)}</p>
 <p>${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}</p>
 <p>海拔: ${altitude}m</p>
 ${elevNote}
-<p class="tip">已自动复制到剪贴板<br>文件已保存到 Scriptable/location-spoofer/argument.txt</p>
+<p class="tip">已自动复制到剪贴板<br>文件：Scriptable/location-spoofer/argument.txt</p>
 </div>
 <div class="card">
 <div class="label">粘贴到 Shadowrocket 模块 argument= 后面：</div>
@@ -89,7 +84,7 @@ ${elevNote}
 <button class="primary" onclick="copy()">再次复制</button>
 <button class="secondary" onclick="done()">完成</button>
 </div>
-<p class="tip">Shadowrocket → 配置 → 模块 → iOS Location Spoofer → 替换 argument= 整行 → 保存 → 关开定位</p>
+<p class="tip">Shadowrocket → 配置 → 模块 → 替换 argument= 整行 → 保存 → 关开定位</p>
 <script>
 function copy(){
   var t=document.getElementById('arg');
@@ -101,19 +96,10 @@ function done(){ window.location='done://ok'; }
 </script>
 </body></html>`;
 
-  return new Promise(async (resolve) => {
-    const wv = new WebView();
-    wv.shouldAllowRequest = (req) => {
-      if (req.url.startsWith("done://")) {
-        resolve();
-        return false;
-      }
-      return true;
-    };
-    wv.loadHTML(html);
-    await wv.present(true);
-    resolve();
-  });
+  const wv = new WebView();
+  wv.shouldAllowRequest = (req) => String(req.url || "").indexOf("done://") !== -1 ? false : true;
+  wv.loadHTML(html);
+  await wv.present(true);
 }
 
 function esc(s) {
@@ -125,37 +111,34 @@ function esc(s) {
 }
 
 async function inputText(title, placeholder) {
-  return new Promise(async (resolve) => {
-    let result = null;
-    const wv = new WebView();
-    wv.shouldAllowRequest = (req) => {
-      if (req.url.startsWith("input://")) {
-        result = decodeURIComponent(req.url.slice(8));
-        wv.close();
-        return false;
-      }
-      if (req.url.startsWith("cancel://")) {
-        wv.close();
-        return false;
-      }
-      return true;
-    };
-    const html = `<!DOCTYPE html>
+  let result = null;
+  const wv = new WebView();
+  wv.shouldAllowRequest = (req) => {
+    const url = String(req.url || "");
+    if (url.indexOf("input://") !== -1) {
+      result = decodeURIComponent(url.split("input://")[1]);
+      return false;
+    }
+    if (url.indexOf("cancel://") !== -1) return false;
+    return true;
+  };
+  const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body{font-family:-apple-system;padding:20px;background:#f2f2f7}
-h3{margin:0 0 16px}
+h3{margin:0 0 4px}p{color:#666;font-size:13px;margin:0 0 16px}
 input{width:100%;box-sizing:border-box;padding:14px;font-size:17px;border:1px solid #ccc;border-radius:10px}
 button{width:100%;padding:14px;margin-top:12px;font-size:17px;border:none;border-radius:10px}
 .ok{background:#007aff;color:#fff}
 .cancel{background:#e5e5ea;color:#000}
 </style></head><body>
 <h3>${esc(title)}</h3>
+<p>v${VERSION}</p>
 <input id="t" placeholder="${esc(placeholder)}" autofocus>
 <button class="ok" onclick="go()">确定</button>
-<button class="cancel" onclick="window.location='cancel://'">取消</button>
+<button class="cancel" onclick="window.location='cancel://x'">取消</button>
 <script>
 function go(){
   var v=document.getElementById('t').value.trim();
@@ -164,10 +147,13 @@ function go(){
 }
 document.getElementById('t').addEventListener('keydown',function(e){if(e.key==='Enter')go();});
 </script></body></html>`;
-    wv.loadHTML(html);
+  wv.loadHTML(html);
+  try {
     await wv.present(true);
-    resolve(result);
-  });
+  } catch (e) {
+    if (!result) throw e;
+  }
+  return result;
 }
 
 async function askPlace() {
@@ -176,12 +162,12 @@ async function askPlace() {
     if (t) return t;
   }
 
-  const alert = new Alert("iOS 定位生成", "选择输入方式");
+  const alert = new Alert(`iOS 定位生成 v${VERSION}`, "选择输入方式");
   alert.addAction("手动输入地名");
   alert.addAction("从剪贴板读取");
   alert.addCancelAction("取消");
   const idx = await alert.present();
-  if (idx === 0) return await inputText("输入地名", "例如：洛杉矶、上海外滩");
+  if (idx === 0) return await inputText("输入地名", "例如：洛杉矶、夏威夷");
   if (idx === 1) {
     const t = (Pasteboard.paste() || "").trim();
     if (!t) {
@@ -306,13 +292,12 @@ async function resolveCandidates(query) {
     ["openmeteo", () => geocodeOpenMeteo(query)],
     ["nominatim", () => geocodeNominatim(query)],
   ];
-  for (const [name, fn] of chain) {
+  for (const [, fn] of chain) {
     try {
       const cands = await fn();
       if (cands.length) return cands;
-      errors.push(`${name}: 无结果`);
     } catch (e) {
-      errors.push(`${name}: ${e.message || e}`);
+      errors.push(String(e.message || e));
     }
   }
   throw new Error("找不到地点\n" + errors.join("\n"));

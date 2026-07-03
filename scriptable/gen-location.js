@@ -1,6 +1,7 @@
-// iOS Location Spoofer · Scriptable v2.1
+// iOS Location Spoofer · Scriptable v2.2
+// 结果/错误用 QuickLook 展示（长文本 Alert 在部分机型不显示）
 
-const VERSION = "2.1";
+const VERSION = "2.2";
 const QUERY_TIMEOUT_MS = 30000;
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
@@ -19,16 +20,21 @@ const A = 6378245.0;
 const EE = 0.00669342162296594323;
 
 async function main() {
+  if (!CONFIG.amapKey || CONFIG.amapKey.includes("在此填入")) {
+    showFile(writeLocFile("error.txt", "未配置高德 Key\n请编辑脚本顶部 CONFIG.amapKey"));
+    return;
+  }
+
   try {
     const place = await askPlace();
     if (!place) return;
 
-    ping("正在查询", `「${place}」\n约 3～10 秒`);
+    ping("正在查询", place);
 
     const cands = await withTimeout(
       resolveCandidates(place),
       QUERY_TIMEOUT_MS,
-      `查询「${place}」超时\n请检查网络或换关键词`
+      `查询超时: ${place}`
     );
     const chosen = await pickCandidate(cands);
 
@@ -43,56 +49,56 @@ async function main() {
     const altitude = Math.round(elev);
     const argument = buildArgument(chosen.lat, chosen.lng, altitude);
     saveArgument(argument);
-
     Pasteboard.copyString(argument);
     if (typeof Script !== "undefined" && Script.setShortcutOutput) {
       Script.setShortcutOutput(argument);
     }
 
     ping("定位已生成", chosen.name);
-    await showResult(chosen, argument, altitude, elevWarn);
+    showFile(showResult(chosen, argument, altitude, elevWarn));
   } catch (e) {
     const msg = String((e && e.message) || e || "未知错误").trim() || "未知错误";
-    ping("查询失败", msg);
-    await showTip("查询失败", msg);
+    ping("查询失败", msg.slice(0, 80));
+    showFile(writeLocFile("error.txt", "查询失败\n\n" + msg));
   }
 }
 
-async function showTip(title, message) {
-  const a = new Alert("iOS定位 v" + VERSION, String(title) + "\n\n" + String(message));
-  a.addAction("好");
-  await a.present();
+function locDir() {
+  const fm = FileManager.iCloud();
+  const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
+  fm.createDirectory(dir, true);
+  return dir;
 }
 
-async function showResult(chosen, argument, altitude, elevWarn) {
+function writeLocFile(name, text) {
+  const path = FileManager.iCloud().joinPath(locDir(), name);
+  FileManager.iCloud().writeString(path, text);
+  return path;
+}
+
+function showFile(path) {
+  QuickLook.present(path);
+}
+
+function showResult(chosen, argument, altitude, elevWarn) {
   const lines = [
+    "=== 定位已生成 ===",
+    "",
     `地点: ${chosen.name}`,
     `来源: ${chosen.sourceLabel}`,
     `坐标: ${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}`,
     `海拔: ${altitude}m`,
-    elevWarn ? "(海拔查询失败，已用0)" : "",
+    elevWarn ? "(海拔查询失败，已用 0)" : "",
     "",
     "argument 已复制到剪贴板:",
     argument,
     "",
-    "Shadowrocket -> 模块 -> 替换 argument= 整行",
+    "下一步:",
+    "Shadowrocket -> 配置 -> 模块",
+    "替换 argument= 整行 -> 保存",
+    "设置 -> 隐私 -> 定位服务 关开一次",
   ].filter((x) => x !== "");
-  const text = lines.join("\n");
-
-  const fm = FileManager.iCloud();
-  const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
-  fm.createDirectory(dir, true);
-  const path = fm.joinPath(dir, "result.txt");
-  fm.writeString(path, text);
-
-  const a = new Alert(
-    "定位已生成",
-    `${chosen.name}\n海拔 ${altitude}m\n\n已复制到剪贴板\n点「查看详情」看完整参数`
-  );
-  a.addAction("查看详情");
-  a.addAction("好");
-  const idx = await a.present();
-  if (idx === 0) QuickLook.present(path);
+  return writeLocFile("result.txt", lines.join("\n"));
 }
 
 function withTimeout(promise, ms, message) {
@@ -114,44 +120,41 @@ function ping(title, body) {
 }
 
 function saveArgument(argument) {
-  const fm = FileManager.iCloud();
-  const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
-  fm.createDirectory(dir, true);
-  fm.writeString(fm.joinPath(dir, "argument.txt"), argument);
+  writeLocFile("argument.txt", argument);
+}
+
+async function shortAlert(title, message, actions) {
+  const a = new Alert();
+  a.title = title;
+  a.message = message;
+  actions.forEach((name) => a.addAction(name));
+  return await a.present();
 }
 
 async function askFromClipboard() {
   const t = (Pasteboard.paste() || "").trim();
   if (!t) {
-    await showTip(
-      "剪贴板为空",
-      "请先在地图 / 备忘录 / Safari 复制地名\n然后重新运行脚本\n\n或选「常用城市」"
-    );
+    showFile(writeLocFile("error.txt", "剪贴板为空\n请先复制地名再运行"));
     return null;
   }
-  const preview = t.length > 50 ? t.slice(0, 50) + "…" : t;
-  const alert = new Alert("确认查询", preview);
-  alert.addAction("开始查询");
-  alert.addCancelAction("取消");
-  const idx = await alert.present();
+  const preview = t.length > 40 ? t.slice(0, 40) + "…" : t;
+  const idx = await shortAlert("确认查询", preview, ["开始查询"]);
   return idx === 0 ? t : null;
 }
 
 async function pickFromList(title, list) {
-  const alert = new Alert(title, "点选即可查询");
-  list.forEach((name) => alert.addAction(name));
-  alert.addCancelAction("取消");
-  const idx = await alert.present();
+  const a = new Alert();
+  a.title = title;
+  a.message = "点选查询";
+  list.forEach((name) => a.addAction(name));
+  a.addCancelAction("取消");
+  const idx = await a.present();
   if (idx === -1) return null;
   return list[idx] || null;
 }
 
 async function pickPresetCity() {
-  const alert = new Alert("常用城市", "选国内或国外");
-  alert.addAction("国内");
-  alert.addAction("国外");
-  alert.addCancelAction("取消");
-  const idx = await alert.present();
+  const idx = await shortAlert("常用城市", "选国内或国外", ["国内", "国外"]);
   if (idx === 0) return await pickFromList("国内城市", PRESETS_CN);
   if (idx === 1) return await pickFromList("国外城市", PRESETS_EN);
   return null;
@@ -162,15 +165,13 @@ async function askPlace() {
     const t = String(args.shortcutParameter).trim();
     if (t) return t;
   }
-
-  const alert = new Alert(
-    `iOS 定位 v${VERSION}`,
-    "① 剪贴板：先复制地名再点\n② 常用城市：直接点选\n③ 键盘输入：加到快捷指令「询问输入」→「运行 Scriptable」"
-  );
-  alert.addAction("从剪贴板读取");
-  alert.addAction("常用城市");
-  alert.addCancelAction("取消");
-  const idx = await alert.present();
+  const a = new Alert();
+  a.title = "iOS定位 v" + VERSION;
+  a.message = "剪贴板 / 常用城市";
+  a.addAction("从剪贴板读取");
+  a.addAction("常用城市");
+  a.addCancelAction("取消");
+  const idx = await a.present();
   if (idx === 0) return await askFromClipboard();
   if (idx === 1) return await pickPresetCity();
   return null;
@@ -241,7 +242,7 @@ async function geocodeAmap(query) {
       name: item.formatted_address || query,
       lat: wgs[0],
       lng: wgs[1],
-      sourceLabel: "高德 (GCJ→WGS)",
+      sourceLabel: "高德",
       elevation: null,
     });
   }
@@ -268,7 +269,7 @@ async function geocodeOpenMeteo(query) {
 async function geocodeNominatim(query) {
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=10&accept-language=zh`;
   const data = await httpJson(url, { "User-Agent": "ios-location-spoofer-scriptable/1.0" });
-  return (data || []).map(item => ({
+  return (data || []).map((item) => ({
     name: item.display_name || query,
     lat: parseFloat(item.lat),
     lng: parseFloat(item.lon),
@@ -280,14 +281,11 @@ async function geocodeNominatim(query) {
 async function resolveCandidates(query) {
   const errors = [];
   const chain = [
-    ["amap", async () => {
-      if (!CONFIG.amapKey || CONFIG.amapKey.includes("在此填入")) throw new Error("未配置 amapKey");
-      return geocodeAmap(query);
-    }],
-    ["openmeteo", () => geocodeOpenMeteo(query)],
-    ["nominatim", () => geocodeNominatim(query)],
+    () => geocodeAmap(query),
+    () => geocodeOpenMeteo(query),
+    () => geocodeNominatim(query),
   ];
-  for (const [, fn] of chain) {
+  for (const fn of chain) {
     try {
       const cands = await fn();
       if (cands.length) return cands;
@@ -295,23 +293,23 @@ async function resolveCandidates(query) {
       errors.push(String(e.message || e));
     }
   }
-  throw new Error(
-    `找不到「${query}」\n\n建议：\n· 用城市/地标名\n· 国外用英文\n· 球队/店名改成具体地址`
-  );
+  throw new Error(`找不到: ${query}\n${errors.join("\n")}`);
 }
 
 async function pickCandidate(cands) {
   if (cands.length === 1) return cands[0];
-  const alert = new Alert("选择地点", `找到 ${cands.length} 个候选`);
+  const a = new Alert();
+  a.title = "选择地点";
+  a.message = `共 ${cands.length} 个候选`;
   cands.forEach((c, i) => {
-    const short = c.name.length > 28 ? c.name.slice(0, 28) + "…" : c.name;
-    alert.addAction(`${i + 1}. ${short}`);
+    const short = c.name.length > 24 ? c.name.slice(0, 24) + "…" : c.name;
+    a.addAction(`${i + 1}.${short}`);
   });
-  alert.addCancelAction("取消");
-  const idx = await alert.present();
-  if (idx === -1) throw new Error("已取消选择");
+  a.addCancelAction("取消");
+  const idx = await a.present();
+  if (idx === -1) throw new Error("已取消");
   const chosen = cands[idx];
-  if (!chosen) throw new Error("选择无效，请重试");
+  if (!chosen) throw new Error("选择无效");
   return chosen;
 }
 

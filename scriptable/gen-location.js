@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v2.5
+// iOS Location Spoofer · Scriptable v2.6
 
-const VERSION = "2.5";
+const VERSION = "2.6";
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
   hAcc: 10,
@@ -100,9 +100,10 @@ function pageShell(title, body) {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0b0b0f;color:#f2f2f7;padding:20px 16px 32px;line-height:1.5}
-.wrap{max-width:480px;margin:0 auto}
-.badge{display:inline-block;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:12px}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0b0b0f;color:#f2f2f7;padding:0 16px env(safe-area-inset-bottom,20px);line-height:1.5}
+.wrap{max-width:480px;margin:0 auto;padding-top:calc(env(safe-area-inset-top,0px) + 56px)}
+.hero{padding-bottom:4px}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:12px;margin-left:2px}
 .ok{background:rgba(52,199,89,.18);color:#34c759}
 .err{background:rgba(255,69,58,.18);color:#ff453a}
 h1{font-size:22px;font-weight:700;margin-bottom:6px;word-break:break-word}

@@ -1,8 +1,6 @@
-// iOS Location Spoofer · Scriptable v2.2
-// 结果/错误用 QuickLook 展示（长文本 Alert 在部分机型不显示）
+// iOS Location Spoofer · Scriptable v2.3
 
-const VERSION = "2.2";
-const QUERY_TIMEOUT_MS = 30000;
+const VERSION = "2.3";
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
   hAcc: 10,
@@ -31,11 +29,7 @@ async function main() {
 
     ping("正在查询", place);
 
-    const cands = await withTimeout(
-      resolveCandidates(place),
-      QUERY_TIMEOUT_MS,
-      `查询超时: ${place}`
-    );
+    const cands = await resolveCandidates(place);
     const chosen = await pickCandidate(cands);
 
     let elev = chosen.elevation;
@@ -80,36 +74,6 @@ function showFile(path) {
   QuickLook.present(path);
 }
 
-function showResult(chosen, argument, altitude, elevWarn) {
-  const lines = [
-    "=== 定位已生成 ===",
-    "",
-    `地点: ${chosen.name}`,
-    `来源: ${chosen.sourceLabel}`,
-    `坐标: ${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}`,
-    `海拔: ${altitude}m`,
-    elevWarn ? "(海拔查询失败，已用 0)" : "",
-    "",
-    "argument 已复制到剪贴板:",
-    argument,
-    "",
-    "下一步:",
-    "Shadowrocket -> 配置 -> 模块",
-    "替换 argument= 整行 -> 保存",
-    "设置 -> 隐私 -> 定位服务 关开一次",
-  ].filter((x) => x !== "");
-  return writeLocFile("result.txt", lines.join("\n"));
-}
-
-function withTimeout(promise, ms, message) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      Script.setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]);
-}
-
 function ping(title, body) {
   try {
     const n = new Notification();
@@ -129,6 +93,27 @@ async function shortAlert(title, message, actions) {
   a.message = message;
   actions.forEach((name) => a.addAction(name));
   return await a.present();
+}
+
+function showResult(chosen, argument, altitude, elevWarn) {
+  const lines = [
+    "=== 定位已生成 ===",
+    "",
+    `地点: ${chosen.name}`,
+    `来源: ${chosen.sourceLabel}`,
+    `坐标: ${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}`,
+    `海拔: ${altitude}m`,
+    elevWarn ? "(海拔查询失败，已用 0)" : "",
+    "",
+    "argument 已复制到剪贴板:",
+    argument,
+    "",
+    "下一步:",
+    "Shadowrocket -> 配置 -> 模块",
+    "替换 argument= 整行 -> 保存",
+    "设置 -> 隐私 -> 定位服务 关开一次",
+  ].filter((x) => x !== "");
+  return writeLocFile("result.txt", lines.join("\n"));
 }
 
 async function askFromClipboard() {

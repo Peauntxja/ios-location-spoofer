@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v1.7
+// iOS Location Spoofer · Scriptable v1.8
 
-const VERSION = "1.7";
+const VERSION = "1.8";
 const QUERY_TIMEOUT_MS = 30000;
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
@@ -141,37 +141,45 @@ async function inputText(title, placeholder) {
   const wv = new WebView();
   wv.shouldAllowRequest = (req) => {
     const url = String(req.url || "");
-    if (url.indexOf("input://") !== -1) {
-      result = decodeURIComponent(url.split("input://")[1]);
+    if (url.indexOf("locsubmit://") !== -1) {
+      result = decodeURIComponent(url.split("locsubmit://")[1]);
       return false;
     }
-    if (url.indexOf("cancel://") !== -1) return false;
+    if (url.indexOf("loccancel://") !== -1) return false;
     return true;
   };
   const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <style>
-body{font-family:-apple-system;padding:20px;background:#f2f2f7}
+*{box-sizing:border-box}
+body{font-family:-apple-system;padding:20px;background:#f2f2f7;margin:0}
 h3{margin:0 0 4px}p{color:#666;font-size:13px;margin:0 0 16px}
-input{width:100%;box-sizing:border-box;padding:14px;font-size:17px;border:1px solid #ccc;border-radius:10px}
-button{width:100%;padding:14px;margin-top:12px;font-size:17px;border:none;border-radius:10px}
+input{width:100%;padding:14px;font-size:17px;border:1px solid #ccc;border-radius:10px;-webkit-appearance:none}
+.btn{display:block;width:100%;padding:14px;margin-top:12px;font-size:17px;border:none;border-radius:10px;text-align:center;text-decoration:none;-webkit-appearance:none}
 .ok{background:#007aff;color:#fff}
 .cancel{background:#e5e5ea;color:#000}
 </style></head><body>
 <h3>${esc(title)}</h3>
 <p>v${VERSION}</p>
-<input id="t" placeholder="${esc(placeholder)}" autofocus>
-<button class="ok" onclick="go()">确定</button>
-<button class="cancel" onclick="window.location='cancel://x'">取消</button>
+<form id="f">
+<input id="t" name="t" placeholder="${esc(placeholder)}" autocomplete="off" autocorrect="off" spellcheck="false">
+<button class="btn ok" type="submit">确定</button>
+</form>
+<a class="btn cancel" id="cancel" href="loccancel://x">取消</a>
 <script>
-function go(){
-  var v=document.getElementById('t').value.trim();
-  if(!v){alert('请输入地名');return;}
-  window.location='input://'+encodeURIComponent(v);
-}
-document.getElementById('t').addEventListener('keydown',function(e){if(e.key==='Enter')go();});
+(function(){
+  var f=document.getElementById('f');
+  var t=document.getElementById('t');
+  f.addEventListener('submit',function(e){
+    e.preventDefault();
+    var v=t.value.trim();
+    if(!v){alert('请输入地名');return;}
+    window.location.href='locsubmit://'+encodeURIComponent(v);
+  });
+  t.focus();
+})();
 </script></body></html>`;
   wv.loadHTML(html);
   try {

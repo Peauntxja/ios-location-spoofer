@@ -1,12 +1,20 @@
-// iOS Location Spoofer · Scriptable v1.8
+// iOS Location Spoofer · Scriptable v2.0
+// 不用 WebView 输入（部分机型按钮无响应），改用剪贴板 / 常用城市 / 快捷指令
 
-const VERSION = "1.8";
+const VERSION = "2.0";
 const QUERY_TIMEOUT_MS = 30000;
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
   hAcc: 10,
   vAcc: 20,
 };
+
+const PRESETS = [
+  "上海外滩", "北京天安门", "广州塔", "深圳",
+  "洛杉矶", "Los Angeles", "纽约", "New York",
+  "东京塔", "Tokyo Tower", "夏威夷", "Hawaii",
+  "Staples Center, Los Angeles", "London", "巴黎",
+];
 
 const PI = Math.PI;
 const A = 6378245.0;
@@ -17,12 +25,12 @@ async function main() {
     const place = await askPlace();
     if (!place) return;
 
-    ping("正在查询", `「${place}」\n获取经纬度与海拔，约 3～10 秒`);
+    ping("正在查询", `「${place}」\n约 3～10 秒`);
 
     const cands = await withTimeout(
       resolveCandidates(place),
       QUERY_TIMEOUT_MS,
-      `查询「${place}」超时\n请检查网络，或换更具体的地名/地址`
+      `查询「${place}」超时\n请检查网络或换关键词`
     );
     const chosen = await pickCandidate(cands);
 
@@ -43,15 +51,19 @@ async function main() {
       Script.setShortcutOutput(argument);
     }
 
-    ping("定位已生成", `${chosen.name}\n已复制到剪贴板`);
+    ping("定位已生成", chosen.name);
     await showResult(chosen, argument, altitude, elevWarn);
   } catch (e) {
     const msg = String((e && e.message) || e || "未知错误").trim() || "未知错误";
     ping("查询失败", msg);
-    const err = new Alert("查询失败", msg);
-    err.addAction("好");
-    await err.present();
+    await showTip("查询失败", msg);
   }
+}
+
+async function showTip(title, message) {
+  const a = new Alert(String(title), String(message));
+  a.addAction("好");
+  await a.present();
 }
 
 function withTimeout(promise, ms, message) {
@@ -79,115 +91,40 @@ function saveArgument(argument) {
 }
 
 async function showResult(chosen, argument, altitude, elevWarn) {
-  const elevNote = elevWarn ? "<p style='color:#ff9500'>⚠️ 海拔查询失败，已用 0</p>" : "";
-  const html = `<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-body{font-family:-apple-system;padding:16px;background:#f2f2f7;line-height:1.5}
-.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px}
-h2{margin:0 0 8px;font-size:20px}
-.label{color:#666;font-size:13px;margin-bottom:4px}
-textarea{width:100%;box-sizing:border-box;height:88px;font-size:12px;padding:10px;border:1px solid #ddd;border-radius:8px}
-button{width:100%;padding:14px;margin-top:10px;font-size:17px;border:none;border-radius:10px}
-.primary{background:#007aff;color:#fff}
-.secondary{background:#e5e5ea;color:#000}
-.tip{font-size:13px;color:#666;margin-top:8px}
-</style></head><body>
-<div class="card">
-<h2>✅ 定位参数已生成 (v${VERSION})</h2>
-<p><b>${esc(chosen.name)}</b></p>
-<p>来源: ${esc(chosen.sourceLabel)}</p>
-<p>${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}</p>
-<p>海拔: ${altitude}m</p>
-${elevNote}
-<p class="tip">已自动复制到剪贴板<br>文件：Scriptable/location-spoofer/argument.txt</p>
-</div>
-<div class="card">
-<div class="label">粘贴到 Shadowrocket 模块 argument= 后面：</div>
-<textarea id="arg" readonly>${esc(argument)}</textarea>
-<button class="primary" onclick="copy()">再次复制</button>
-<button class="secondary" onclick="done()">完成</button>
-</div>
-<p class="tip">Shadowrocket → 配置 → 模块 → 替换 argument= 整行 → 保存 → 关开定位</p>
-<script>
-function copy(){
-  var t=document.getElementById('arg');
-  t.select();t.setSelectionRange(0,99999);
-  document.execCommand('copy');
-  alert('已复制');
-}
-function done(){ window.location='done://ok'; }
-</script>
-</body></html>`;
-
-  const wv = new WebView();
-  wv.shouldAllowRequest = (req) => String(req.url || "").indexOf("done://") !== -1 ? false : true;
-  wv.loadHTML(html);
-  await wv.present(true);
+  let msg = `${chosen.name}\n来源: ${chosen.sourceLabel}\n`;
+  msg += `${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}\n海拔: ${altitude}m\n`;
+  if (elevWarn) msg += "\n⚠️ 海拔查询失败，已用 0\n";
+  msg += "\n✅ argument 已复制到剪贴板\n";
+  msg += `文件: Scriptable/location-spoofer/argument.txt\n\n`;
+  msg += `${argument}\n\n`;
+  msg += "Shadowrocket → 配置 → 模块\n替换 argument= 整行 → 保存 → 关开定位";
+  await showTip("定位参数已生成", msg);
 }
 
-function esc(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-async function inputText(title, placeholder) {
-  let result = null;
-  const wv = new WebView();
-  wv.shouldAllowRequest = (req) => {
-    const url = String(req.url || "");
-    if (url.indexOf("locsubmit://") !== -1) {
-      result = decodeURIComponent(url.split("locsubmit://")[1]);
-      return false;
-    }
-    if (url.indexOf("loccancel://") !== -1) return false;
-    return true;
-  };
-  const html = `<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<style>
-*{box-sizing:border-box}
-body{font-family:-apple-system;padding:20px;background:#f2f2f7;margin:0}
-h3{margin:0 0 4px}p{color:#666;font-size:13px;margin:0 0 16px}
-input{width:100%;padding:14px;font-size:17px;border:1px solid #ccc;border-radius:10px;-webkit-appearance:none}
-.btn{display:block;width:100%;padding:14px;margin-top:12px;font-size:17px;border:none;border-radius:10px;text-align:center;text-decoration:none;-webkit-appearance:none}
-.ok{background:#007aff;color:#fff}
-.cancel{background:#e5e5ea;color:#000}
-</style></head><body>
-<h3>${esc(title)}</h3>
-<p>v${VERSION}</p>
-<form id="f">
-<input id="t" name="t" placeholder="${esc(placeholder)}" autocomplete="off" autocorrect="off" spellcheck="false">
-<button class="btn ok" type="submit">确定</button>
-</form>
-<a class="btn cancel" id="cancel" href="loccancel://x">取消</a>
-<script>
-(function(){
-  var f=document.getElementById('f');
-  var t=document.getElementById('t');
-  f.addEventListener('submit',function(e){
-    e.preventDefault();
-    var v=t.value.trim();
-    if(!v){alert('请输入地名');return;}
-    window.location.href='locsubmit://'+encodeURIComponent(v);
-  });
-  t.focus();
-})();
-</script></body></html>`;
-  wv.loadHTML(html);
-  try {
-    await wv.present(true);
-  } catch (e) {
-    if (!result) throw e;
+async function askFromClipboard() {
+  const t = (Pasteboard.paste() || "").trim();
+  if (!t) {
+    await showTip(
+      "剪贴板为空",
+      "请先在地图 / 备忘录 / Safari 复制地名\n然后重新运行脚本\n\n或选「常用城市」"
+    );
+    return null;
   }
-  return result;
+  const preview = t.length > 50 ? t.slice(0, 50) + "…" : t;
+  const alert = new Alert("确认查询", preview);
+  alert.addAction("开始查询");
+  alert.addCancelAction("取消");
+  const idx = await alert.present();
+  return idx === 0 ? t : null;
+}
+
+async function pickPresetCity() {
+  const alert = new Alert("常用城市", "点选即可查询");
+  PRESETS.forEach((name) => alert.addAction(name));
+  alert.addCancelAction("取消");
+  const idx = await alert.present();
+  if (idx === -1) return null;
+  return PRESETS[idx];
 }
 
 async function askPlace() {
@@ -196,30 +133,16 @@ async function askPlace() {
     if (t) return t;
   }
 
-  const alert = new Alert(`iOS 定位生成 v${VERSION}`, "选择输入方式");
-  alert.addAction("手动输入地名");
+  const alert = new Alert(
+    `iOS 定位 v${VERSION}`,
+    "① 剪贴板：先复制地名再点\n② 常用城市：直接点选\n③ 键盘输入：加到快捷指令「询问输入」→「运行 Scriptable」"
+  );
   alert.addAction("从剪贴板读取");
+  alert.addAction("常用城市");
   alert.addCancelAction("取消");
   const idx = await alert.present();
-  if (idx === 0) {
-    const t = await inputText("输入地名", "城市/地址，如：洛杉矶");
-    if (!t) {
-      const a = new Alert("已取消", "未输入地名");
-      a.addAction("好");
-      await a.present();
-    }
-    return t;
-  }
-  if (idx === 1) {
-    const t = (Pasteboard.paste() || "").trim();
-    if (!t) {
-      const err = new Alert("剪贴板为空", "请先复制地名，或选手动输入");
-      err.addAction("好");
-      await err.present();
-      return null;
-    }
-    return t;
-  }
+  if (idx === 0) return await askFromClipboard();
+  if (idx === 1) return await pickPresetCity();
   return null;
 }
 
@@ -343,7 +266,7 @@ async function resolveCandidates(query) {
     }
   }
   throw new Error(
-    `找不到「${query}」\n\n建议：\n· 用城市/地标，如「洛杉矶」\n· 店名/球队名请改成具体地址\n· 国外地址尽量用英文`
+    `找不到「${query}」\n\n建议：\n· 用城市/地标名\n· 国外用英文\n· 球队/店名改成具体地址`
   );
 }
 

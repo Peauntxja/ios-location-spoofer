@@ -1,6 +1,7 @@
 // iOS Location Spoofer · Scriptable 版
-// 用法：Scriptable 里运行 → 输入地名 → 自动复制 argument 到剪贴板
-// 也可加到快捷指令：「询问输入」→「运行 Scriptable 脚本」
+// 用法：
+// 1. 复制地名到剪贴板 → Scriptable 运行 → 点「从剪贴板读取」
+// 2. 快捷指令：「询问输入」→「运行 Scriptable 脚本」传入地名
 
 // 本地配置（可选）：复制 config.local.js.example 为 config.local.js 并填入 Key
 // Scriptable 不支持 import，请直接改下方 amapKey
@@ -45,18 +46,39 @@ async function main() {
 }
 
 async function askPlace() {
-  if (args.shortcutParameter) return String(args.shortcutParameter).trim();
-  if (typeof argument !== "undefined" && argument) return String(argument).trim();
+  if (args.shortcutParameter) {
+    const t = String(args.shortcutParameter).trim();
+    if (t) return t;
+  }
 
-  const prompt = new Prompt();
-  prompt.title = "iOS 定位生成";
-  prompt.message = "输入地名或详细地址";
-  prompt.addTextField("地名", "例如：上海外滩");
-  prompt.addAction("确定");
-  prompt.addCancelAction("取消");
-  const idx = await prompt.present();
-  if (idx === -1) return null;
-  return prompt.textFieldValue(0).trim();
+  const clip = (Pasteboard.readString() || "").trim();
+  if (clip) {
+    const alert = new Alert("使用剪贴板地名？", clip.length > 40 ? clip.slice(0, 40) + "…" : clip);
+    alert.addAction("使用");
+    alert.addAction("换一条");
+    alert.addCancelAction("取消");
+    const idx = await alert.present();
+    if (idx === 0) return clip;
+    if (idx === -1) return null;
+  }
+
+  const alert = new Alert(
+    "输入地名",
+    "请先把地名复制到剪贴板\n（如：上海外滩）\n\n或添加到快捷指令：\n「询问输入」→「运行 Scriptable」"
+  );
+  alert.addAction("从剪贴板读取");
+  alert.addCancelAction("取消");
+  const idx = await alert.present();
+  if (idx === 0) {
+    const t = (Pasteboard.readString() || "").trim();
+    if (!t) {
+      const err = new Alert("剪贴板为空", "请先复制地名再运行");
+      err.addAction("好");
+      await err.present();
+    }
+    return t || null;
+  }
+  return null;
 }
 
 function outOfChina(lat, lng) {

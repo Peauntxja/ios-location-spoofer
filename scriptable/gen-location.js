@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v2.3
+// iOS Location Spoofer · Scriptable v2.4
 
-const VERSION = "2.3";
+const VERSION = "2.4";
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
   hAcc: 10,
@@ -9,9 +9,24 @@ const CONFIG = {
 
 const PRESETS_CN = ["上海外滩", "北京天安门", "广州塔", "深圳", "香港", "台北"];
 const PRESETS_EN = [
-  "Los Angeles", "New York", "London", "Paris",
-  "Tokyo Tower", "Hawaii", "Staples Center, Los Angeles",
+  { name: "Los Angeles", lat: 34.052235, lng: -118.243683, elevation: 71, sourceLabel: "预设" },
+  { name: "New York", lat: 40.712776, lng: -74.005974, elevation: 10, sourceLabel: "预设" },
+  { name: "London", lat: 51.507351, lng: -0.127758, elevation: 11, sourceLabel: "预设" },
+  { name: "Paris", lat: 48.856613, lng: 2.352222, elevation: 35, sourceLabel: "预设" },
+  { name: "Tokyo Tower", lat: 35.658581, lng: 139.745438, elevation: 52, sourceLabel: "预设" },
+  { name: "Hawaii (Honolulu)", lat: 21.306944, lng: -157.858337, elevation: 6, sourceLabel: "预设" },
+  { name: "Staples Center, LA", lat: 34.043017, lng: -118.267254, elevation: 92, sourceLabel: "预设" },
 ];
+
+const BUILTIN_ALIASES = {};
+(function initAliases() {
+  const add = (keys, preset) => keys.forEach((k) => { BUILTIN_ALIASES[k.trim().toLowerCase()] = preset; });
+  PRESETS_EN.forEach((p) => add([p.name], p));
+  add(["staples center", "staples center, los angeles", "crypto.com arena", "洛杉矶斯台普斯"], PRESETS_EN[6]);
+  add(["hawaii", "honolulu", "夏威夷"], PRESETS_EN[5]);
+  add(["la", "los angeles, ca"], PRESETS_EN[0]);
+  add(["nyc", "new york city"], PRESETS_EN[1]);
+})();
 
 const PI = Math.PI;
 const A = 6378245.0;
@@ -27,9 +42,10 @@ async function main() {
     const place = await askPlace();
     if (!place) return;
 
-    ping("正在查询", place);
+    const placeName = typeof place === "string" ? place : place.name;
+    ping("正在查询", placeName);
 
-    const cands = await resolveCandidates(place);
+    const cands = await resolvePlace(place);
     const chosen = await pickCandidate(cands);
 
     let elev = chosen.elevation;
@@ -131,7 +147,7 @@ async function pickFromList(title, list) {
   const a = new Alert();
   a.title = title;
   a.message = "点选查询";
-  list.forEach((name) => a.addAction(name));
+  list.forEach((item) => a.addAction(typeof item === "string" ? item : item.name));
   a.addCancelAction("取消");
   const idx = await a.present();
   if (idx === -1) return null;
@@ -263,6 +279,17 @@ async function geocodeNominatim(query) {
   }));
 }
 
+function lookupBuiltin(query) {
+  return BUILTIN_ALIASES[String(query || "").trim().toLowerCase()] || null;
+}
+
+async function resolvePlace(place) {
+  if (place && typeof place === "object" && place.lat != null) return [place];
+  const builtin = lookupBuiltin(place);
+  if (builtin) return [builtin];
+  return await resolveCandidates(place);
+}
+
 async function resolveCandidates(query) {
   const errors = [];
   const chain = [
@@ -278,7 +305,9 @@ async function resolveCandidates(query) {
       errors.push(String(e.message || e));
     }
   }
-  throw new Error(`找不到: ${query}\n${errors.join("\n")}`);
+  throw new Error(
+    `找不到: ${query}\n${errors.join("\n")}\n\n国外自定义地址需访问 Open-Meteo，请开代理后重试`
+  );
 }
 
 async function pickCandidate(cands) {

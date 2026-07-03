@@ -51,7 +51,7 @@ async function askPlace() {
     if (t) return t;
   }
 
-  const clip = (Pasteboard.readString() || "").trim();
+  const clip = (Pasteboard.paste() || "").trim();
   if (clip) {
     const alert = new Alert("使用剪贴板地名？", clip.length > 40 ? clip.slice(0, 40) + "…" : clip);
     alert.addAction("使用");
@@ -70,7 +70,7 @@ async function askPlace() {
   alert.addCancelAction("取消");
   const idx = await alert.present();
   if (idx === 0) {
-    const t = (Pasteboard.readString() || "").trim();
+    const t = (Pasteboard.paste() || "").trim();
     if (!t) {
       const err = new Alert("剪贴板为空", "请先复制地名再运行");
       err.addAction("好");

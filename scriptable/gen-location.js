@@ -1,7 +1,6 @@
-// iOS Location Spoofer · Scriptable v2.0
-// 不用 WebView 输入（部分机型按钮无响应），改用剪贴板 / 常用城市 / 快捷指令
+// iOS Location Spoofer · Scriptable v2.1
 
-const VERSION = "2.0";
+const VERSION = "2.1";
 const QUERY_TIMEOUT_MS = 30000;
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
@@ -9,11 +8,10 @@ const CONFIG = {
   vAcc: 20,
 };
 
-const PRESETS = [
-  "上海外滩", "北京天安门", "广州塔", "深圳",
-  "洛杉矶", "Los Angeles", "纽约", "New York",
-  "东京塔", "Tokyo Tower", "夏威夷", "Hawaii",
-  "Staples Center, Los Angeles", "London", "巴黎",
+const PRESETS_CN = ["上海外滩", "北京天安门", "广州塔", "深圳", "香港", "台北"];
+const PRESETS_EN = [
+  "Los Angeles", "New York", "London", "Paris",
+  "Tokyo Tower", "Hawaii", "Staples Center, Los Angeles",
 ];
 
 const PI = Math.PI;
@@ -61,26 +59,58 @@ async function main() {
 }
 
 async function showTip(title, message) {
-  const a = new Alert(String(title), String(message));
+  const a = new Alert("iOS定位 v" + VERSION, String(title) + "\n\n" + String(message));
   a.addAction("好");
   await a.present();
 }
 
+async function showResult(chosen, argument, altitude, elevWarn) {
+  const lines = [
+    `地点: ${chosen.name}`,
+    `来源: ${chosen.sourceLabel}`,
+    `坐标: ${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}`,
+    `海拔: ${altitude}m`,
+    elevWarn ? "(海拔查询失败，已用0)" : "",
+    "",
+    "argument 已复制到剪贴板:",
+    argument,
+    "",
+    "Shadowrocket -> 模块 -> 替换 argument= 整行",
+  ].filter((x) => x !== "");
+  const text = lines.join("\n");
+
+  const fm = FileManager.iCloud();
+  const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
+  fm.createDirectory(dir, true);
+  const path = fm.joinPath(dir, "result.txt");
+  fm.writeString(path, text);
+
+  const a = new Alert(
+    "定位已生成",
+    `${chosen.name}\n海拔 ${altitude}m\n\n已复制到剪贴板\n点「查看详情」看完整参数`
+  );
+  a.addAction("查看详情");
+  a.addAction("好");
+  const idx = await a.present();
+  if (idx === 0) QuickLook.present(path);
+}
+
 function withTimeout(promise, ms, message) {
-  return new Promise((resolve, reject) => {
-    const timer = Script.setTimeout(() => reject(new Error(message)), ms);
-    promise.then(
-      (v) => { Script.clearTimeout(timer); resolve(v); },
-      (e) => { Script.clearTimeout(timer); reject(e); }
-    );
-  });
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      Script.setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
 }
 
 function ping(title, body) {
-  const n = new Notification();
-  n.title = title;
-  n.body = body;
-  n.schedule();
+  try {
+    const n = new Notification();
+    n.title = title;
+    n.body = body;
+    n.schedule();
+  } catch (e) { /* ignore */ }
 }
 
 function saveArgument(argument) {
@@ -88,17 +118,6 @@ function saveArgument(argument) {
   const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
   fm.createDirectory(dir, true);
   fm.writeString(fm.joinPath(dir, "argument.txt"), argument);
-}
-
-async function showResult(chosen, argument, altitude, elevWarn) {
-  let msg = `${chosen.name}\n来源: ${chosen.sourceLabel}\n`;
-  msg += `${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}\n海拔: ${altitude}m\n`;
-  if (elevWarn) msg += "\n⚠️ 海拔查询失败，已用 0\n";
-  msg += "\n✅ argument 已复制到剪贴板\n";
-  msg += `文件: Scriptable/location-spoofer/argument.txt\n\n`;
-  msg += `${argument}\n\n`;
-  msg += "Shadowrocket → 配置 → 模块\n替换 argument= 整行 → 保存 → 关开定位";
-  await showTip("定位参数已生成", msg);
 }
 
 async function askFromClipboard() {
@@ -118,13 +137,24 @@ async function askFromClipboard() {
   return idx === 0 ? t : null;
 }
 
-async function pickPresetCity() {
-  const alert = new Alert("常用城市", "点选即可查询");
-  PRESETS.forEach((name) => alert.addAction(name));
+async function pickFromList(title, list) {
+  const alert = new Alert(title, "点选即可查询");
+  list.forEach((name) => alert.addAction(name));
   alert.addCancelAction("取消");
   const idx = await alert.present();
   if (idx === -1) return null;
-  return PRESETS[idx];
+  return list[idx] || null;
+}
+
+async function pickPresetCity() {
+  const alert = new Alert("常用城市", "选国内或国外");
+  alert.addAction("国内");
+  alert.addAction("国外");
+  alert.addCancelAction("取消");
+  const idx = await alert.present();
+  if (idx === 0) return await pickFromList("国内城市", PRESETS_CN);
+  if (idx === 1) return await pickFromList("国外城市", PRESETS_EN);
+  return null;
 }
 
 async function askPlace() {

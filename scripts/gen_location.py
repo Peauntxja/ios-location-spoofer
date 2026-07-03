@@ -5,11 +5,15 @@ import math
 import os
 import re
 import ssl
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from geo_intl_data import CITY_ZH_TO_COUNTRY, CITY_ZH_TO_EN, FOREIGN_CITIES_ZH
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "templates" / "ios-location-spoofer.sgmodule"
@@ -136,20 +140,17 @@ def geocode_amap(query: str, key: str) -> list[Candidate]:
     return out
 
 
-FOREIGN_CITIES_ZH = (
-    "芝加哥|纽约|洛杉矶|旧金山|西雅图|波士顿|华盛顿|费城|迈阿密|休斯敦|休斯顿|拉斯维加斯|"
-    "檀香山|夏威夷|丹佛|亚特兰大|圣地亚哥|多伦多|温哥华|蒙特利尔|伦敦|巴黎|柏林|东京|大阪|京都|"
-    "首尔|悉尼|墨尔本|新加坡|曼谷|迪拜"
+FOREIGN_COUNTRY_ZH = re.compile(
+    r"(美国|加拿大|英国|英格兰|苏格兰|威尔士|法国|德国|意大利|西班牙|葡萄牙|荷兰|比利时|瑞士|奥地利|"
+    r"瑞典|挪威|丹麦|芬兰|爱尔兰|波兰|捷克|匈牙利|希腊|俄罗斯|土耳其|以色列|阿联酋|沙特|日本|韩国|"
+    r"新加坡|泰国|越南|马来西亚|印尼|印度尼西亚|菲律宾|印度|澳大利亚|新西兰|巴西|阿根廷|智利|墨西哥|埃及|南非|夏威夷)"
 )
-CITY_ZH_TO_EN = {
-    "芝加哥": "Chicago", "纽约": "New York", "洛杉矶": "Los Angeles", "旧金山": "San Francisco",
-    "西雅图": "Seattle", "波士顿": "Boston", "华盛顿": "Washington", "费城": "Philadelphia",
-    "迈阿密": "Miami", "休斯敦": "Houston", "休斯顿": "Houston", "拉斯维加斯": "Las Vegas",
-    "檀香山": "Honolulu", "夏威夷": "Honolulu", "丹佛": "Denver", "亚特兰大": "Atlanta",
-    "圣地亚哥": "San Diego", "多伦多": "Toronto", "温哥华": "Vancouver", "蒙特利尔": "Montreal",
-    "伦敦": "London", "巴黎": "Paris", "柏林": "Berlin", "东京": "Tokyo", "大阪": "Osaka",
-    "京都": "Kyoto", "首尔": "Seoul", "悉尼": "Sydney", "墨尔本": "Melbourne",
-    "新加坡": "Singapore", "曼谷": "Bangkok", "迪拜": "Dubai",
+LANDMARK_ZH_TO_EN = {
+    "时代广场": "Times Square", "中央公园": "Central Park", "自由女神": "Statue of Liberty",
+    "帝国大厦": "Empire State Building", "金门大桥": "Golden Gate Bridge", "好莱坞": "Hollywood",
+    "迪士尼乐园": "Disneyland", "东京塔": "Tokyo Tower", "埃菲尔铁塔": "Eiffel Tower",
+    "大本钟": "Big Ben", "白宫": "White House", "五角大楼": "Pentagon",
+    "卢浮宫": "Louvre Museum", "勃兰登堡门": "Brandenburg Gate",
 }
 DOMESTIC_MARKERS = re.compile(
     r"(北京|上海|广州|深圳|香港|台北|澳门|中国|省|市|区|县|路|街|镇|村|外滩|天安门|塔)"
@@ -162,7 +163,20 @@ def is_likely_international(query: str) -> bool:
         return True
     if re.search(FOREIGN_CITIES_ZH, q):
         return True
+    if FOREIGN_COUNTRY_ZH.search(q):
+        return True
     return not DOMESTIC_MARKERS.search(q)
+
+
+def translate_landmark(tail: str) -> str:
+    if not tail:
+        return ""
+    if tail in LANDMARK_ZH_TO_EN:
+        return LANDMARK_ZH_TO_EN[tail]
+    for zh, en in LANDMARK_ZH_TO_EN.items():
+        if zh in tail:
+            return tail.replace(zh, en)
+    return tail
 
 
 def normalize_intl_geocode_query(query: str) -> str:
@@ -173,7 +187,33 @@ def normalize_intl_geocode_query(query: str) -> str:
     if m:
         en = CITY_ZH_TO_EN.get(m.group(1), m.group(1))
         return f"Chinatown, {en}"
+    m = re.search(
+        rf"({FOREIGN_CITIES_ZH}).*(?:中国城|唐人街|华埠)|(?:中国城|唐人街|华埠).*({FOREIGN_CITIES_ZH})",
+        q,
+    )
+    if m:
+        city = m.group(1) or m.group(2)
+        en = CITY_ZH_TO_EN.get(city, city)
+        return f"Chinatown, {en}"
+    m = re.match(rf"^({FOREIGN_CITIES_ZH})(?:的|\s*)?(.*)$", q)
+    if m:
+        city = m.group(1)
+        tail = (m.group(2) or "").strip()
+        en_city = CITY_ZH_TO_EN.get(city, city)
+        country = CITY_ZH_TO_COUNTRY.get(city, "")
+        if not tail:
+            return f"{en_city}, {country}" if country else en_city
+        if re.fullmatch(r"中国城|唐人街|华埠", tail):
+            return f"Chinatown, {en_city}"
+        place = translate_landmark(tail)
+        return f"{place}, {en_city}, {country}" if country else f"{place}, {en_city}"
     return q
+
+
+def filter_intl_candidates(query: str, cands: list[Candidate]) -> list[Candidate]:
+    if not is_likely_international(query):
+        return cands
+    return [c for c in cands if out_of_china(c.lat, c.lng)]
 
 
 def geocode_openmeteo(query: str, *, language: str | None = None) -> list[Candidate]:
@@ -235,7 +275,7 @@ def resolve_candidates(query: str, provider: str, amap_key: str | None) -> list[
     chain: list[str]
     if provider == "auto":
         chain = (
-            ["openmeteo", "nominatim", "amap"]
+            ["nominatim", "openmeteo"]
             if is_likely_international(query)
             else ["amap", "openmeteo", "nominatim"]
         )
@@ -249,7 +289,7 @@ def resolve_candidates(query: str, provider: str, amap_key: str | None) -> list[
                 errors.append("amap: 未设置 AMAP_KEY")
                 continue
             try:
-                cands = geocode_amap(query, amap_key)
+                cands = filter_intl_candidates(query, geocode_amap(query, amap_key))
                 if cands:
                     return cands
                 errors.append("amap: 无结果")
@@ -258,7 +298,7 @@ def resolve_candidates(query: str, provider: str, amap_key: str | None) -> list[
             continue
         if name == "openmeteo":
             try:
-                cands = geocode_openmeteo(query)
+                cands = filter_intl_candidates(query, geocode_openmeteo(query))
                 if cands:
                     return cands
                 errors.append("openmeteo: 无结果")
@@ -267,7 +307,7 @@ def resolve_candidates(query: str, provider: str, amap_key: str | None) -> list[
             continue
         if name == "nominatim":
             try:
-                cands = geocode_nominatim(query)
+                cands = filter_intl_candidates(query, geocode_nominatim(query))
                 if cands:
                     return cands
                 errors.append("nominatim: 无结果")

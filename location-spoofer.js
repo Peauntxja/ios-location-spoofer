@@ -1068,7 +1068,18 @@
       var en = CITY_ZH_TO_EN[m[1]] || m[1];
       return "Chinatown, " + en;
     }
+    m = q.match(
+      new RegExp("(" + FOREIGN_CITIES_ZH + ").*(?:中国城|唐人街|华埠)|(?:中国城|唐人街|华埠).*(" + FOREIGN_CITIES_ZH + ")")
+    );
+    if (m) {
+      var city = m[1] || m[2];
+      return "Chinatown, " + (CITY_ZH_TO_EN[city] || city);
+    }
     return q;
+  }
+
+  function isOutOfChina(lat, lng) {
+    return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
   }
 
   function finishGeocodeEntry(query, lat, lng, displayName, debug, callback) {
@@ -1127,6 +1138,10 @@
             callback(null);
             return;
           }
+          if (isLikelyInternational(query) && !isOutOfChina(lat, lng)) {
+            callback(null);
+            return;
+          }
           finishGeocodeEntry(query, lat, lng, hit.display_name || query, debug, callback);
         } catch (err) {
           if (debug) {
@@ -1165,6 +1180,10 @@
           callback(null);
           return;
         }
+        if (isLikelyInternational(query) && !isOutOfChina(lat, lng)) {
+          callback(null);
+          return;
+        }
         var name = [hit.name, hit.admin1, hit.country].filter(Boolean).join(", ") || query;
         finishGeocodeEntry(query, lat, lng, name, debug, callback);
       } catch (err) {
@@ -1200,15 +1219,12 @@
       return;
     }
 
-    var intl = isLikelyInternational(query);
-    var primary = intl ? geocodeOpenMeteo : geocodeNominatim;
-    var fallback = intl ? geocodeNominatim : geocodeOpenMeteo;
-    primary(query, debug, function (entry) {
+    geocodeNominatim(query, debug, function (entry) {
       if (entry) {
         callback(entry);
         return;
       }
-      fallback(query, debug, function (entry2) {
+      geocodeOpenMeteo(query, debug, function (entry2) {
         if (!entry2 && debug) {
           console.log("Location spoofer geocode no result for: " + query);
         }

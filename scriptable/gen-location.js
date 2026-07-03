@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v2.6
+// iOS Location Spoofer · Scriptable v2.9
 
-const VERSION = "2.6";
+const VERSION = "2.9";
 const CONFIG = {
     amapKey: "8ad224cc1617bdfe92edd15167be87dc",
     hAcc: 10,
@@ -26,6 +26,35 @@ const BUILTIN_ALIASES = {};
     add(["hawaii", "honolulu", "夏威夷"], PRESETS_EN[5]);
     add(["la", "los angeles, ca"], PRESETS_EN[0]);
     add(["nyc", "new york city"], PRESETS_EN[1]);
+})();
+
+// 海外唐人街内置坐标（Open-Meteo 常无结果、高德会误匹配国内时使用）
+const CHINATOWN_COORDS = {
+    芝加哥: { lat: 41.851658, lng: -87.633138, elevation: 182 },
+    纽约: { lat: 40.715751, lng: -73.997039, elevation: 10 },
+    旧金山: { lat: 37.794078, lng: -122.407784, elevation: 52 },
+    洛杉矶: { lat: 34.062809, lng: -118.238766, elevation: 91 },
+    波士顿: { lat: 42.350382, lng: -71.062393, elevation: 6 },
+    西雅图: { lat: 47.598988, lng: -122.326389, elevation: 20 },
+    多伦多: { lat: 43.653226, lng: -79.383184, elevation: 97 },
+    温哥华: { lat: 49.279793, lng: -123.109043, elevation: 20 },
+    伦敦: { lat: 51.511741, lng: -0.124676, elevation: 15 },
+    巴黎: { lat: 48.871078, lng: 2.345347, elevation: 38 },
+};
+
+(function initChinatownAliases() {
+    const add = (keys, preset) => keys.forEach((k) => { BUILTIN_ALIASES[k.trim().toLowerCase()] = preset; });
+    for (const [zh, coord] of Object.entries(CHINATOWN_COORDS)) {
+        const preset = {
+            name: `${zh}唐人街`,
+            lat: coord.lat,
+            lng: coord.lng,
+            elevation: coord.elevation,
+            sourceLabel: "预设",
+        };
+        add([`${zh}中国城`, `${zh}唐人街`, `${zh}华埠`, `${zh}的唐人街`, `${zh}的中国城`], preset);
+    }
+    add(["chicago chinatown", "chinatown chicago"], BUILTIN_ALIASES["芝加哥唐人街"]);
 })();
 
 const PI = Math.PI;
@@ -301,18 +330,99 @@ async function httpJson(url, headers) {
     return await req.loadJSON();
 }
 
-const FOREIGN_CITIES_ZH =
-    "芝加哥|纽约|洛杉矶|旧金山|西雅图|波士顿|华盛顿|费城|迈阿密|休斯敦|休斯顿|拉斯维加斯|檀香山|夏威夷|丹佛|亚特兰大|圣地亚哥|多伦多|温哥华|蒙特利尔|伦敦|巴黎|柏林|东京|大阪|京都|首尔|悉尼|墨尔本|新加坡|曼谷|迪拜";
-const FOREIGN_CITY_RE = new RegExp(FOREIGN_CITIES_ZH);
 const CITY_ZH_TO_EN = {
+    // 美国
     芝加哥: "Chicago", 纽约: "New York", 洛杉矶: "Los Angeles", 旧金山: "San Francisco",
     西雅图: "Seattle", 波士顿: "Boston", 华盛顿: "Washington", 费城: "Philadelphia",
     迈阿密: "Miami", 休斯敦: "Houston", 休斯顿: "Houston", 拉斯维加斯: "Las Vegas",
     檀香山: "Honolulu", 夏威夷: "Honolulu", 丹佛: "Denver", 亚特兰大: "Atlanta",
-    圣地亚哥: "San Diego", 多伦多: "Toronto", 温哥华: "Vancouver", 蒙特利尔: "Montreal",
-    伦敦: "London", 巴黎: "Paris", 柏林: "Berlin", 东京: "Tokyo", 大阪: "Osaka",
-    京都: "Kyoto", 首尔: "Seoul", 悉尼: "Sydney", 墨尔本: "Melbourne",
-    新加坡: "Singapore", 曼谷: "Bangkok", 迪拜: "Dubai",
+    圣地亚哥: "San Diego", 凤凰城: "Phoenix", 达拉斯: "Dallas", 奥斯汀: "Austin",
+    波特兰: "Portland", 底特律: "Detroit", 明尼阿波利斯: "Minneapolis", 新奥尔良: "New Orleans",
+    盐湖城: "Salt Lake City", 巴尔的摩: "Baltimore", 匹兹堡: "Pittsburgh", 夏洛特: "Charlotte",
+    // 加拿大
+    多伦多: "Toronto", 温哥华: "Vancouver", 蒙特利尔: "Montreal", 卡尔加里: "Calgary", 渥太华: "Ottawa",
+    // 英国
+    伦敦: "London", 曼彻斯特: "Manchester", 伯明翰: "Birmingham", 爱丁堡: "Edinburgh",
+    格拉斯哥: "Glasgow", 利物浦: "Liverpool",
+    // 德国
+    柏林: "Berlin", 慕尼黑: "Munich", 法兰克福: "Frankfurt", 汉堡: "Hamburg",
+    科隆: "Cologne", 斯图加特: "Stuttgart", 杜塞尔多夫: "Dusseldorf",
+    // 法国
+    巴黎: "Paris", 里昂: "Lyon", 马赛: "Marseille", 尼斯: "Nice", 波尔多: "Bordeaux",
+    // 意大利
+    罗马: "Rome", 米兰: "Milan", 威尼斯: "Venice", 佛罗伦萨: "Florence", 那不勒斯: "Naples",
+    // 西班牙
+    马德里: "Madrid", 巴塞罗那: "Barcelona", 塞维利亚: "Seville",
+    // 日本
+    东京: "Tokyo", 大阪: "Osaka", 京都: "Kyoto", 名古屋: "Nagoya", 横滨: "Yokohama",
+    札幌: "Sapporo", 福冈: "Fukuoka", 神户: "Kobe",
+    // 韩国
+    首尔: "Seoul", 釜山: "Busan",
+    // 澳大利亚/新西兰
+    悉尼: "Sydney", 墨尔本: "Melbourne", 布里斯班: "Brisbane", 珀斯: "Perth", 阿德莱德: "Adelaide",
+    奥克兰: "Auckland", 惠灵顿: "Wellington",
+    // 西欧/北欧
+    阿姆斯特丹: "Amsterdam", 布鲁塞尔: "Brussels", 苏黎世: "Zurich", 日内瓦: "Geneva",
+    维也纳: "Vienna", 斯德哥尔摩: "Stockholm", 奥斯陆: "Oslo", 哥本哈根: "Copenhagen",
+    赫尔辛基: "Helsinki", 都柏林: "Dublin", 里斯本: "Lisbon", 雅典: "Athens",
+    华沙: "Warsaw", 布拉格: "Prague", 布达佩斯: "Budapest",
+    // 东欧/中东/非洲
+    莫斯科: "Moscow", 圣彼得堡: "Saint Petersburg", 伊斯坦布尔: "Istanbul",
+    迪拜: "Dubai", 阿布扎比: "Abu Dhabi", 特拉维夫: "Tel Aviv", 耶路撒冷: "Jerusalem",
+    开罗: "Cairo", 约翰内斯堡: "Johannesburg", 开普敦: "Cape Town",
+    // 东南亚/南亚
+    新加坡: "Singapore", 曼谷: "Bangkok", 清迈: "Chiang Mai", 吉隆坡: "Kuala Lumpur",
+    雅加达: "Jakarta", 巴厘岛: "Bali", 马尼拉: "Manila", 河内: "Hanoi", 胡志明市: "Ho Chi Minh City",
+    西贡: "Ho Chi Minh City", 新德里: "New Delhi", 孟买: "Mumbai", 班加罗尔: "Bangalore", 加尔各答: "Kolkata",
+    // 拉美
+    圣保罗: "Sao Paulo", 里约热内卢: "Rio de Janeiro", 墨西哥城: "Mexico City", 坎昆: "Cancun",
+    布宜诺斯艾利斯: "Buenos Aires", 智利圣地亚哥: "Santiago",
+};
+const CITY_ZH_TO_COUNTRY = {
+    芝加哥: "United States", 纽约: "United States", 洛杉矶: "United States", 旧金山: "United States",
+    西雅图: "United States", 波士顿: "United States", 华盛顿: "United States", 费城: "United States",
+    迈阿密: "United States", 休斯敦: "United States", 休斯顿: "United States", 拉斯维加斯: "United States",
+    檀香山: "United States", 夏威夷: "United States", 丹佛: "United States", 亚特兰大: "United States",
+    圣地亚哥: "United States", 凤凰城: "United States", 达拉斯: "United States", 奥斯汀: "United States",
+    波特兰: "United States", 底特律: "United States", 明尼阿波利斯: "United States", 新奥尔良: "United States",
+    盐湖城: "United States", 巴尔的摩: "United States", 匹兹堡: "United States", 夏洛特: "United States",
+    多伦多: "Canada", 温哥华: "Canada", 蒙特利尔: "Canada", 卡尔加里: "Canada", 渥太华: "Canada",
+    伦敦: "United Kingdom", 曼彻斯特: "United Kingdom", 伯明翰: "United Kingdom", 爱丁堡: "United Kingdom",
+    格拉斯哥: "United Kingdom", 利物浦: "United Kingdom",
+    柏林: "Germany", 慕尼黑: "Germany", 法兰克福: "Germany", 汉堡: "Germany", 科隆: "Germany",
+    斯图加特: "Germany", 杜塞尔多夫: "Germany",
+    巴黎: "France", 里昂: "France", 马赛: "France", 尼斯: "France", 波尔多: "France",
+    罗马: "Italy", 米兰: "Italy", 威尼斯: "Italy", 佛罗伦萨: "Italy", 那不勒斯: "Italy",
+    马德里: "Spain", 巴塞罗那: "Spain", 塞维利亚: "Spain",
+    东京: "Japan", 大阪: "Japan", 京都: "Japan", 名古屋: "Japan", 横滨: "Japan",
+    札幌: "Japan", 福冈: "Japan", 神户: "Japan",
+    首尔: "South Korea", 釜山: "South Korea",
+    悉尼: "Australia", 墨尔本: "Australia", 布里斯班: "Australia", 珀斯: "Australia", 阿德莱德: "Australia",
+    奥克兰: "New Zealand", 惠灵顿: "New Zealand",
+    阿姆斯特丹: "Netherlands", 布鲁塞尔: "Belgium", 苏黎世: "Switzerland", 日内瓦: "Switzerland",
+    维也纳: "Austria", 斯德哥尔摩: "Sweden", 奥斯陆: "Norway", 哥本哈根: "Denmark", 赫尔辛基: "Finland",
+    都柏林: "Ireland", 里斯本: "Portugal", 雅典: "Greece", 华沙: "Poland", 布拉格: "Czech Republic",
+    布达佩斯: "Hungary", 莫斯科: "Russia", 圣彼得堡: "Russia", 伊斯坦布尔: "Turkey",
+    迪拜: "United Arab Emirates", 阿布扎比: "United Arab Emirates", 特拉维夫: "Israel", 耶路撒冷: "Israel",
+    开罗: "Egypt", 约翰内斯堡: "South Africa", 开普敦: "South Africa",
+    新加坡: "Singapore", 曼谷: "Thailand", 清迈: "Thailand", 吉隆坡: "Malaysia", 雅加达: "Indonesia",
+    巴厘岛: "Indonesia", 马尼拉: "Philippines", 河内: "Vietnam", 胡志明市: "Vietnam", 西贡: "Vietnam",
+    新德里: "India", 孟买: "India", 班加罗尔: "India", 加尔各答: "India",
+    圣保罗: "Brazil", 里约热内卢: "Brazil", 墨西哥城: "Mexico", 坎昆: "Mexico",
+    布宜诺斯艾利斯: "Argentina", 智利圣地亚哥: "Chile",
+};
+const FOREIGN_CITIES_ZH = Object.keys(CITY_ZH_TO_EN).sort((a, b) => b.length - a.length).join("|");
+const FOREIGN_CITY_RE = new RegExp(FOREIGN_CITIES_ZH);
+const FOREIGN_COUNTRY_ZH =
+    /(美国|加拿大|英国|英格兰|苏格兰|威尔士|法国|德国|意大利|西班牙|葡萄牙|荷兰|比利时|瑞士|奥地利|瑞典|挪威|丹麦|芬兰|爱尔兰|波兰|捷克|匈牙利|希腊|俄罗斯|土耳其|以色列|阿联酋|沙特|日本|韩国|新加坡|泰国|越南|马来西亚|印尼|印度尼西亚|菲律宾|印度|澳大利亚|新西兰|巴西|阿根廷|智利|墨西哥|埃及|南非|夏威夷)/;
+const LANDMARK_ZH_TO_EN = {
+    时代广场: "Times Square", 中央公园: "Central Park", 自由女神: "Statue of Liberty",
+    帝国大厦: "Empire State Building", 金门大桥: "Golden Gate Bridge", 好莱坞: "Hollywood",
+    迪士尼乐园: "Disneyland", 东京塔: "Tokyo Tower", 埃菲尔铁塔: "Eiffel Tower",
+    大本钟: "Big Ben", 白宫: "White House", 五角大楼: "Pentagon",
+    卢浮宫: "Louvre Museum", 勃兰登堡门: "Brandenburg Gate", 新天鹅堡: "Neuschwanstein Castle",
+    斗兽场: "Colosseum", 比萨斜塔: "Leaning Tower of Pisa", 圣家堂: "Sagrada Familia",
+    海德公园: "Hyde Park", 剑桥大学: "University of Cambridge", 牛津大学: "University of Oxford",
 };
 const DOMESTIC_MARKERS =
     /(北京|上海|广州|深圳|香港|台北|澳门|中国|省|市|区|县|路|街|镇|村|外滩|天安门|塔)/;
@@ -321,20 +431,54 @@ function isLikelyInternational(query) {
     const q = String(query || "").trim();
     if (/[a-zA-Z]/.test(q)) return true;
     if (FOREIGN_CITY_RE.test(q)) return true;
+    if (FOREIGN_COUNTRY_ZH.test(q)) return true;
     return !DOMESTIC_MARKERS.test(q);
+}
+
+function translateLandmark(tail) {
+    if (!tail) return "";
+    if (LANDMARK_ZH_TO_EN[tail]) return LANDMARK_ZH_TO_EN[tail];
+    for (const [zh, en] of Object.entries(LANDMARK_ZH_TO_EN)) {
+        if (tail.includes(zh)) return tail.replace(zh, en);
+    }
+    return tail;
 }
 
 function normalizeIntlGeocodeQuery(query) {
     const q = String(query || "").trim();
     if (!isLikelyInternational(q)) return q;
-    const m = q.match(
+    let m = q.match(
         new RegExp("^(" + FOREIGN_CITIES_ZH + ")\\s*(?:的)?\\s*(?:中国城|唐人街|华埠)$")
     );
     if (m) {
         const en = CITY_ZH_TO_EN[m[1]] || m[1];
         return "Chinatown, " + en;
     }
+    m = q.match(
+        new RegExp("(" + FOREIGN_CITIES_ZH + ").*(?:中国城|唐人街|华埠)|(?:中国城|唐人街|华埠).*(" + FOREIGN_CITIES_ZH + ")")
+    );
+    if (m) {
+        const city = m[1] || m[2];
+        const en = CITY_ZH_TO_EN[city] || city;
+        return "Chinatown, " + en;
+    }
+    m = q.match(new RegExp("^(" + FOREIGN_CITIES_ZH + ")(?:的|\\s*)?(.*)$"));
+    if (m) {
+        const city = m[1];
+        const tail = (m[2] || "").trim();
+        const enCity = CITY_ZH_TO_EN[city] || city;
+        const country = CITY_ZH_TO_COUNTRY[city] || "";
+        if (!tail) return country ? `${enCity}, ${country}` : enCity;
+        if (/^(中国城|唐人街|华埠)$/.test(tail)) return `Chinatown, ${enCity}`;
+        const place = translateLandmark(tail);
+        return country ? `${place}, ${enCity}, ${country}` : `${place}, ${enCity}`;
+    }
     return q;
+}
+
+function filterIntlCandidates(query, cands) {
+    if (!isLikelyInternational(query)) return cands;
+    return cands.filter((c) => outOfChina(c.lat, c.lng));
 }
 
 async function geocodeAmap(query) {
@@ -379,7 +523,8 @@ async function geocodeOpenMeteo(query) {
 
 async function geocodeNominatim(query) {
     const geoQuery = normalizeIntlGeocodeQuery(query);
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(geoQuery)}&format=json&limit=10&accept-language=zh`;
+    const lang = isLikelyInternational(query) ? "en" : "zh";
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(geoQuery)}&format=json&limit=10&accept-language=${lang}`;
     const data = await httpJson(url, { "User-Agent": "ios-location-spoofer-scriptable/1.0" });
     return (data || []).map((item) => ({
         name: item.display_name || query,
@@ -405,11 +550,11 @@ async function resolveCandidates(query) {
     const errors = [];
     const intl = isLikelyInternational(query);
     const chain = intl
-        ? [() => geocodeOpenMeteo(query), () => geocodeNominatim(query), () => geocodeAmap(query)]
+        ? [() => geocodeNominatim(query), () => geocodeOpenMeteo(query)]
         : [() => geocodeAmap(query), () => geocodeOpenMeteo(query), () => geocodeNominatim(query)];
     for (const fn of chain) {
         try {
-            const cands = await fn();
+            const cands = filterIntlCandidates(query, await fn());
             if (cands.length) return cands;
         } catch (e) {
             errors.push(String(e.message || e));

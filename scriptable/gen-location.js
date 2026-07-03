@@ -1,10 +1,5 @@
 // iOS Location Spoofer · Scriptable 版
-// 用法：
-// 1. 复制地名到剪贴板 → Scriptable 运行 → 点「从剪贴板读取」
-// 2. 快捷指令：「询问输入」→「运行 Scriptable 脚本」传入地名
-
-// 本地配置（可选）：复制 config.local.js.example 为 config.local.js 并填入 Key
-// Scriptable 不支持 import，请直接改下方 amapKey
+// 输出在剪贴板 + Scriptable 文档目录 argument.txt（文件 App 可查看）
 
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
@@ -17,32 +12,163 @@ const A = 6378245.0;
 const EE = 0.00669342162296594323;
 
 async function main() {
-  const place = await askPlace();
-  if (!place) return;
+  try {
+    const place = await askPlace();
+    if (!place) return;
 
-  const cands = await resolveCandidates(place);
-  const chosen = await pickCandidate(cands);
+    const wait = new Alert("正在查询", `${place}\n请稍候…`);
+    wait.addAction(" ");
+    wait.present();
 
-  let elev = chosen.elevation;
-  let elevWarn = false;
-  if (elev == null) elev = await fetchElevation(chosen.lat, chosen.lng);
-  if (elev == null) {
-    elev = 0;
-    elevWarn = true;
+    const cands = await resolveCandidates(place);
+    const chosen = await pickCandidate(cands);
+
+    let elev = chosen.elevation;
+    let elevWarn = false;
+    if (elev == null) elev = await fetchElevation(chosen.lat, chosen.lng);
+    if (elev == null) {
+      elev = 0;
+      elevWarn = true;
+    }
+
+    const altitude = Math.round(elev);
+    const argument = buildArgument(chosen.lat, chosen.lng, altitude);
+    const savedPath = saveArgument(argument);
+
+    Pasteboard.copyString(argument);
+    if (typeof Script !== "undefined" && Script.setShortcutOutput) {
+      Script.setShortcutOutput(argument);
+    }
+
+    await showResult(chosen, argument, altitude, elevWarn, savedPath);
+  } catch (e) {
+    const err = new Alert("出错了", String(e.message || e));
+    err.addAction("好");
+    await err.present();
   }
+}
 
-  const altitude = Math.round(elev);
-  const argument = buildArgument(chosen.lat, chosen.lng, altitude);
-  Pasteboard.copyString(argument);
+function saveArgument(argument) {
+  const fm = FileManager.iCloud();
+  const dir = fm.joinPath(fm.documentsDirectory(), "location-spoofer");
+  fm.createDirectory(dir, true);
+  const path = fm.joinPath(dir, "argument.txt");
+  fm.writeString(path, argument);
+  return path;
+}
 
-  let msg = `来源: ${chosen.sourceLabel}\n${chosen.name}\n`;
-  msg += `${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}\n海拔 ${altitude}m\n\n`;
-  if (elevWarn) msg += "⚠️ 海拔查询失败，已用 0\n\n";
-  msg += "argument 已复制到剪贴板\n\n打开 Shadowrocket → 模块 → 替换 argument= 整行 → 关开定位";
+async function showResult(chosen, argument, altitude, elevWarn, savedPath) {
+  const elevNote = elevWarn ? "<p style='color:#ff9500'>⚠️ 海拔查询失败，已用 0</p>" : "";
+  const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:-apple-system;padding:16px;background:#f2f2f7;line-height:1.5}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px}
+h2{margin:0 0 8px;font-size:20px}
+.label{color:#666;font-size:13px;margin-bottom:4px}
+textarea{width:100%;box-sizing:border-box;height:88px;font-size:12px;padding:10px;border:1px solid #ddd;border-radius:8px}
+button{width:100%;padding:14px;margin-top:10px;font-size:17px;border:none;border-radius:10px}
+.primary{background:#007aff;color:#fff}
+.secondary{background:#e5e5ea;color:#000}
+.tip{font-size:13px;color:#666;margin-top:8px}
+</style></head><body>
+<div class="card">
+<h2>✅ 定位参数已生成</h2>
+<p><b>${esc(chosen.name)}</b></p>
+<p>来源: ${esc(chosen.sourceLabel)}</p>
+<p>${chosen.lat.toFixed(6)}, ${chosen.lng.toFixed(6)}</p>
+<p>海拔: ${altitude}m</p>
+${elevNote}
+<p class="tip">已自动复制到剪贴板<br>文件已保存到 Scriptable/location-spoofer/argument.txt</p>
+</div>
+<div class="card">
+<div class="label">粘贴到 Shadowrocket 模块 argument= 后面：</div>
+<textarea id="arg" readonly>${esc(argument)}</textarea>
+<button class="primary" onclick="copy()">再次复制</button>
+<button class="secondary" onclick="done()">完成</button>
+</div>
+<p class="tip">Shadowrocket → 配置 → 模块 → iOS Location Spoofer → 替换 argument= 整行 → 保存 → 关开定位</p>
+<script>
+function copy(){
+  var t=document.getElementById('arg');
+  t.select();t.setSelectionRange(0,99999);
+  document.execCommand('copy');
+  alert('已复制');
+}
+function done(){ window.location='done://ok'; }
+</script>
+</body></html>`;
 
-  const alert = new Alert("定位参数已生成", msg);
-  alert.addAction("完成");
-  await alert.present();
+  return new Promise(async (resolve) => {
+    const wv = new WebView();
+    wv.shouldAllowRequest = (req) => {
+      if (req.url.startsWith("done://")) {
+        wv.close();
+        resolve();
+        return false;
+      }
+      return true;
+    };
+    wv.loadHTML(html);
+    await wv.present(true);
+    resolve();
+  });
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function inputText(title, placeholder) {
+  return new Promise(async (resolve) => {
+    let result = null;
+    const wv = new WebView();
+    wv.shouldAllowRequest = (req) => {
+      if (req.url.startsWith("input://")) {
+        result = decodeURIComponent(req.url.slice(8));
+        wv.close();
+        return false;
+      }
+      if (req.url.startsWith("cancel://")) {
+        wv.close();
+        return false;
+      }
+      return true;
+    };
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:-apple-system;padding:20px;background:#f2f2f7}
+h3{margin:0 0 16px}
+input{width:100%;box-sizing:border-box;padding:14px;font-size:17px;border:1px solid #ccc;border-radius:10px}
+button{width:100%;padding:14px;margin-top:12px;font-size:17px;border:none;border-radius:10px}
+.ok{background:#007aff;color:#fff}
+.cancel{background:#e5e5ea;color:#000}
+</style></head><body>
+<h3>${esc(title)}</h3>
+<input id="t" placeholder="${esc(placeholder)}" autofocus>
+<button class="ok" onclick="go()">确定</button>
+<button class="cancel" onclick="window.location='cancel://'">取消</button>
+<script>
+function go(){
+  var v=document.getElementById('t').value.trim();
+  if(!v){alert('请输入地名');return;}
+  window.location='input://'+encodeURIComponent(v);
+}
+document.getElementById('t').addEventListener('keydown',function(e){if(e.key==='Enter')go();});
+</script></body></html>`;
+    wv.loadHTML(html);
+    await wv.present(true);
+    resolve(result);
+  });
 }
 
 async function askPlace() {
@@ -51,32 +177,21 @@ async function askPlace() {
     if (t) return t;
   }
 
-  const clip = (Pasteboard.paste() || "").trim();
-  if (clip) {
-    const alert = new Alert("使用剪贴板地名？", clip.length > 40 ? clip.slice(0, 40) + "…" : clip);
-    alert.addAction("使用");
-    alert.addAction("换一条");
-    alert.addCancelAction("取消");
-    const idx = await alert.present();
-    if (idx === 0) return clip;
-    if (idx === -1) return null;
-  }
-
-  const alert = new Alert(
-    "输入地名",
-    "请先把地名复制到剪贴板\n（如：上海外滩）\n\n或添加到快捷指令：\n「询问输入」→「运行 Scriptable」"
-  );
+  const alert = new Alert("iOS 定位生成", "选择输入方式");
+  alert.addAction("手动输入地名");
   alert.addAction("从剪贴板读取");
   alert.addCancelAction("取消");
   const idx = await alert.present();
-  if (idx === 0) {
+  if (idx === 0) return await inputText("输入地名", "例如：洛杉矶、上海外滩");
+  if (idx === 1) {
     const t = (Pasteboard.paste() || "").trim();
     if (!t) {
-      const err = new Alert("剪贴板为空", "请先复制地名再运行");
+      const err = new Alert("剪贴板为空", "请先复制地名，或选手动输入");
       err.addAction("好");
       await err.present();
+      return null;
     }
-    return t || null;
+    return t;
   }
   return null;
 }
@@ -127,7 +242,7 @@ function gcj2wgs(lat, lng) {
 
 async function httpJson(url, headers) {
   const req = new Request(url);
-  req.timeoutInterval = 12;
+  req.timeoutInterval = 15;
   if (headers) req.headers = headers;
   return await req.loadJSON();
 }
@@ -146,7 +261,6 @@ async function geocodeAmap(query) {
       name: item.formatted_address || query,
       lat: wgs[0],
       lng: wgs[1],
-      source: "amap",
       sourceLabel: "高德 (GCJ→WGS)",
       elevation: null,
     });
@@ -164,7 +278,6 @@ async function geocodeOpenMeteo(query) {
       name,
       lat: item.latitude,
       lng: item.longitude,
-      source: "openmeteo",
       sourceLabel: "Open-Meteo",
       elevation: item.elevation != null ? item.elevation : null,
     });
@@ -179,7 +292,6 @@ async function geocodeNominatim(query) {
     name: item.display_name || query,
     lat: parseFloat(item.lat),
     lng: parseFloat(item.lon),
-    source: "nominatim",
     sourceLabel: "Nominatim",
     elevation: null,
   }));
@@ -195,7 +307,6 @@ async function resolveCandidates(query) {
     ["openmeteo", () => geocodeOpenMeteo(query)],
     ["nominatim", () => geocodeNominatim(query)],
   ];
-
   for (const [name, fn] of chain) {
     try {
       const cands = await fn();
@@ -205,7 +316,7 @@ async function resolveCandidates(query) {
       errors.push(`${name}: ${e.message || e}`);
     }
   }
-  throw new Error("Geocoding 失败\n" + errors.join("\n"));
+  throw new Error("找不到地点\n" + errors.join("\n"));
 }
 
 async function pickCandidate(cands) {

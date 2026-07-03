@@ -1,4 +1,5 @@
 .env
 config/shadowrocket-base.conf
+scriptable/config.local.js
 output/*
 !output/.gitignore

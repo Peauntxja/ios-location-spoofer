@@ -1,7 +1,6 @@
-// iOS Location Spoofer · Scriptable v1.5
-// 输出：剪贴板 + 文件 App → iCloud Drive → Scriptable → location-spoofer → argument.txt
+// iOS Location Spoofer · Scriptable v1.6
 
-const VERSION = "1.5";
+const VERSION = "1.6";
 const CONFIG = {
   amapKey: "在此填入高德Web服务Key",
   hAcc: 10,
@@ -13,13 +12,11 @@ const A = 6378245.0;
 const EE = 0.00669342162296594323;
 
 async function main() {
-  let loader = null;
   try {
     const place = await askPlace();
     if (!place) return;
 
-    loader = showLoading(place);
-    await delay(80);
+    ping("正在查询", `「${place}」\n获取经纬度与海拔，约 3～10 秒`);
 
     const cands = await resolveCandidates(place);
     const chosen = await pickCandidate(cands);
@@ -41,54 +38,22 @@ async function main() {
       Script.setShortcutOutput(argument);
     }
 
-    await hideLoading(loader);
-    loader = null;
+    ping("定位已生成", `${chosen.name}\n已复制到剪贴板`);
     await showResult(chosen, argument, altitude, elevWarn);
   } catch (e) {
-    await hideLoading(loader);
-    const err = new Alert("出错了", String(e.message || e));
+    const msg = String(e && (e.message || e) || "未知错误");
+    ping("查询失败", msg);
+    const err = new Alert("出错了", msg);
     err.addAction("好");
     await err.present();
   }
 }
 
-function delay(ms) {
-  return new Promise((resolve) => Script.setTimeout(resolve, ms));
-}
-
-function showLoading(place) {
-  const html = `<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-body{font-family:-apple-system;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f2f2f7}
-.box{text-align:center;padding:32px 24px}
-.spinner{width:44px;height:44px;border:4px solid #ddd;border-top-color:#007aff;border-radius:50%;margin:0 auto 20px;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-h3{margin:0 0 8px;font-size:20px}
-.place{color:#007aff;font-size:17px;margin:8px 0 16px;font-weight:600}
-.tip{color:#666;font-size:14px;line-height:1.5}
-</style></head><body>
-<div class="box">
-<div class="spinner"></div>
-<h3>正在查询定位</h3>
-<div class="place">${esc(place)}</div>
-<p class="tip">正在获取经纬度与海拔<br>通常需要 3～10 秒，请稍候…</p>
-</div>
-</body></html>`;
-  const wv = new WebView();
-  wv.loadHTML(html);
-  wv.present(false);
-  return wv;
-}
-
-async function hideLoading(wv) {
-  if (!wv) return;
-  wv.shouldAllowRequest = (req) => String(req.url || "").indexOf("done://") !== -1 ? false : true;
-  try {
-    await wv.evaluateJavaScript("window.location='done://x'");
-  } catch (e) { /* ignore */ }
+function ping(title, body) {
+  const n = new Notification();
+  n.title = title;
+  n.body = body;
+  n.schedule();
 }
 
 function saveArgument(argument) {
@@ -189,7 +154,13 @@ button{width:100%;padding:14px;margin-top:12px;font-size:17px;border:none;border
 function go(){
   var v=document.getElementById('t').value.trim();
   if(!v){alert('请输入地名');return;}
-  window.location='input://'+encodeURIComponent(v);
+  document.body.innerHTML='<div style="text-align:center;padding:80px 20px;font-family:-apple-system">'
+    +'<div style="width:40px;height:40px;border:4px solid #ddd;border-top-color:#007aff;border-radius:50%;margin:0 auto 20px;animation:spin .8s linear infinite"></div>'
+    +'<style>@keyframes spin{to{transform:rotate(360deg)}}</style>'
+    +'<p style="font-size:18px;font-weight:600">正在查询</p>'
+    +'<p style="color:#007aff">'+v+'</p>'
+    +'<p style="color:#666;font-size:14px">约需 3～10 秒…</p></div>';
+  setTimeout(function(){ window.location='input://'+encodeURIComponent(v); }, 120);
 }
 document.getElementById('t').addEventListener('keydown',function(e){if(e.key==='Enter')go();});
 </script></body></html>`;

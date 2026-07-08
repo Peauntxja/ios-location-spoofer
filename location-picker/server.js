@@ -37,7 +37,7 @@ const DEFAULT = {
   longitude: -122.00902,
   altitude: 530,
   horizontalAccuracy: 39,
-  verticalAccuracy: 1000
+  verticalAccuracy: 20
 };
 
 function readLoc() {
@@ -428,7 +428,7 @@ function load(){
     enabledState=(d.enabled!==false);
     $("alt").value=(d.altitude!==undefined?d.altitude:"");
     $("hacc").value=(d.horizontalAccuracy!==undefined?d.horizontalAccuracy:39);
-    $("vacc").value=(d.verticalAccuracy!==undefined?d.verticalAccuracy:1000);
+    $("vacc").value=(d.verticalAccuracy!==undefined?d.verticalAccuracy:20);
 
     var amapVec=L.tileLayer("https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7",{subdomains:"1234",maxZoom:18,attribution:"高德地图"});
     amapVec.datum="gcj";

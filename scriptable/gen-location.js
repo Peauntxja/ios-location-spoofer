@@ -494,32 +494,59 @@ function extractAmapCity(query) {
     return m ? m[1] : "";
 }
 
+const AMAP_LEVEL_RANK = {
+    "门址": 100, "门牌号": 100, "单元号": 96, "兴趣点": 92, "POI": 92, "热点商圈": 62,
+    "道路交叉路口": 56, "道路": 50, "村庄": 40, "乡镇": 36, "街道": 34,
+    "开发区": 30, "区县": 20, "地级市": 12, "省": 6,
+};
+
+function amapLocToCand(loc, name, level) {
+    if (!loc || !loc.includes(",")) return null;
+    const [lngS, latS] = loc.split(",");
+    const gcjLat = parseFloat(latS);
+    const gcjLng = parseFloat(lngS);
+    const wgs = gcj2wgs(gcjLat, gcjLng);
+    return { name, lat: wgs[0], lng: wgs[1], gcjLat, gcjLng, sourceLabel: "高德", elevation: null, level: level || "" };
+}
+
 async function geocodeAmap(query) {
     const address = normalizeCnAddress(query);
     const city = extractAmapCity(query);
+    const out = [];
+
     let url = `https://restapi.amap.com/v3/geocode/geo?key=${CONFIG.amapKey}&address=${encodeURIComponent(address)}&output=json`;
     if (city) url += `&city=${encodeURIComponent(city)}`;
     const data = await httpJson(url);
     if (data.status !== "1") throw new Error(data.info || "高德失败");
-    const out = [];
     for (const item of data.geocodes || []) {
-        const loc = item.location || "";
-        if (!loc.includes(",")) continue;
-        const [lngS, latS] = loc.split(",");
-        const gcjLat = parseFloat(latS);
-        const gcjLng = parseFloat(lngS);
-        const wgs = gcj2wgs(gcjLat, gcjLng);
-        out.push({
-            name: item.formatted_address || query,
-            lat: wgs[0],
-            lng: wgs[1],
-            gcjLat,
-            gcjLng,
-            sourceLabel: "高德",
-            elevation: null,
-        });
+        const c = amapLocToCand(item.location || "", item.formatted_address || query, item.level || "");
+        if (c) out.push(c);
     }
-    return out;
+
+    try {
+        let poiUrl = `https://restapi.amap.com/v3/place/text?key=${CONFIG.amapKey}&keywords=${encodeURIComponent(address)}&offset=10&extensions=base&output=json`;
+        if (city) poiUrl += `&city=${encodeURIComponent(city)}&citylimit=true`;
+        const poi = await httpJson(poiUrl);
+        if (poi.status === "1") {
+            for (const item of poi.pois || []) {
+                const addr = typeof item.address === "string" ? item.address : "";
+                const nm = [item.name, addr].filter(Boolean).join(" ") || query;
+                const c = amapLocToCand(item.location || "", nm, "POI");
+                if (c) out.push(c);
+            }
+        }
+    } catch (e) { /* ignore */ }
+
+    out.sort((a, b) => (AMAP_LEVEL_RANK[b.level] || 45) - (AMAP_LEVEL_RANK[a.level] || 45));
+    const seen = {};
+    const uniq = [];
+    for (const c of out) {
+        const k = c.lat.toFixed(5) + "," + c.lng.toFixed(5);
+        if (seen[k]) continue;
+        seen[k] = 1;
+        uniq.push(c);
+    }
+    return uniq;
 }
 
 async function geocodeOpenMeteo(query) {
@@ -590,7 +617,8 @@ async function pickCandidate(cands) {
     a.message = `共 ${cands.length} 个候选`;
     cands.forEach((c, i) => {
         const short = c.name.length > 24 ? c.name.slice(0, 24) + "…" : c.name;
-        a.addAction(`${i + 1}.${short}`);
+        const tag = c.level ? `[${c.level}] ` : "";
+        a.addAction(`${i + 1}.${tag}${short}`);
     });
     a.addCancelAction("取消");
     const idx = await a.present();

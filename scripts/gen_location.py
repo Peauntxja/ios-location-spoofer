@@ -49,6 +49,7 @@ class Candidate:
     lng: float
     source: str
     elevation: float | None = None
+    level: str = ""
 
 
 def ssl_context() -> ssl.SSLContext:
@@ -127,9 +128,25 @@ def extract_amap_city(query: str) -> str:
     return m.group(1) if m else ""
 
 
+AMAP_LEVEL_RANK = {
+    "门址": 100, "门牌号": 100, "单元号": 96, "兴趣点": 92, "POI": 92, "热点商圈": 62,
+    "道路交叉路口": 56, "道路": 50, "村庄": 40, "乡镇": 36, "街道": 34,
+    "开发区": 30, "区县": 20, "地级市": 12, "省": 6,
+}
+
+
+def _amap_loc_to_wgs(loc: str) -> tuple[float, float] | None:
+    if "," not in loc:
+        return None
+    lng_s, lat_s = loc.split(",", 1)
+    return gcj2wgs(float(lat_s), float(lng_s))
+
+
 def geocode_amap(query: str, key: str) -> list[Candidate]:
     address = normalize_cn_address(query)
     city = extract_amap_city(query)
+    out: list[Candidate] = []
+
     params: dict[str, str] = {"key": key, "address": address, "output": "json"}
     if city:
         params["city"] = city
@@ -137,19 +154,51 @@ def geocode_amap(query: str, key: str) -> list[Candidate]:
     data = http_json(url)
     if data.get("status") != "1":
         raise RuntimeError(data.get("info") or "amap error")
-    out: list[Candidate] = []
     for item in data.get("geocodes") or []:
-        loc = item.get("location") or ""
-        if "," not in loc:
+        wgs = _amap_loc_to_wgs(item.get("location") or "")
+        if not wgs:
             continue
-        lng_s, lat_s = loc.split(",", 1)
-        lat_gcj, lng_gcj = float(lat_s), float(lng_s)
-        lat, lng = gcj2wgs(lat_gcj, lng_gcj)
         out.append(Candidate(
             name=item.get("formatted_address") or query,
-            lat=lat, lng=lng, source="amap",
+            lat=wgs[0], lng=wgs[1], source="amap",
+            level=item.get("level") or "",
         ))
-    return out
+
+    # POI 关键字搜索：门牌号/建筑物级别精度，弥补 geocode/geo 只到道路级的情况
+    poi_params: dict[str, str] = {
+        "key": key, "keywords": address, "offset": "10",
+        "output": "json", "extensions": "base",
+    }
+    if city:
+        poi_params["city"] = city
+        poi_params["citylimit"] = "true"
+    poi_url = "https://restapi.amap.com/v3/place/text?" + urllib.parse.urlencode(poi_params)
+    try:
+        poi_data = http_json(poi_url)
+        if poi_data.get("status") == "1":
+            for item in poi_data.get("pois") or []:
+                wgs = _amap_loc_to_wgs(item.get("location") or "")
+                if not wgs:
+                    continue
+                addr = item.get("address")
+                addr = addr if isinstance(addr, str) else ""
+                out.append(Candidate(
+                    name=" ".join(filter(None, [item.get("name"), addr])) or query,
+                    lat=wgs[0], lng=wgs[1], source="amap",
+                    level="POI",
+                ))
+    except Exception:
+        pass
+
+    seen: set[tuple[int, int]] = set()
+    uniq: list[Candidate] = []
+    for c in sorted(out, key=lambda c: AMAP_LEVEL_RANK.get(c.level, 45), reverse=True):
+        k = (round(c.lat, 5), round(c.lng, 5))
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(c)
+    return uniq
 
 
 FOREIGN_COUNTRY_ZH = re.compile(
@@ -334,7 +383,8 @@ def pick_candidate(cands: list[Candidate]) -> Candidate:
         return cands[0]
     print("找到多个候选：")
     for i, c in enumerate(cands, 1):
-        print(f"  [{i}] ({c.source}) {c.name}  {c.lat:.6f}, {c.lng:.6f}")
+        tag = f"{c.source}/{c.level}" if c.level else c.source
+        print(f"  [{i}] ({tag}) {c.name}  {c.lat:.6f}, {c.lng:.6f}")
     while True:
         raw = input("选择编号 [1]: ").strip() or "1"
         if raw.isdigit() and 1 <= int(raw) <= len(cands):

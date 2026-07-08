@@ -16,7 +16,7 @@ const DEFAULT = {
   longitude: -122.00902,
   altitude: 530,
   horizontalAccuracy: 39,
-  verticalAccuracy: 1000,
+  verticalAccuracy: 20,
 };
 
 const CORS = {

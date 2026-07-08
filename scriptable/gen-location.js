@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v2.9
+// iOS Location Spoofer · Scriptable v3.0
 
-const VERSION = "2.9";
+const VERSION = "3.0";
 const CONFIG = {
     amapKey: "8ad224cc1617bdfe92edd15167be87dc",
     hAcc: 10,
@@ -159,6 +159,9 @@ function resultHtml(chosen, argument, altitude, elevWarn) {
     const lat = chosen.lat.toFixed(6);
     const lng = chosen.lng.toFixed(6);
     const mapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=13&size=600x220&markers=${lat},${lng},red`;
+    const gcjNote = chosen.gcjLat != null
+        ? `<div class="item full"><label>高德 GCJ 对照（与坐标拾取器一致）</label><span>${chosen.gcjLat.toFixed(6)}, ${chosen.gcjLng.toFixed(6)}</span></div>`
+        : "";
     const body = `
 <div class="hero">
 <span class="badge ok">定位已生成</span>
@@ -168,8 +171,9 @@ function resultHtml(chosen, argument, altitude, elevWarn) {
 <div class="card">
   <h2>坐标信息</h2>
   <div class="grid">
-    <div class="item"><label>纬度</label><span>${lat}</span></div>
-    <div class="item"><label>经度</label><span>${lng}</span></div>
+    <div class="item"><label>纬度 WGS-84</label><span>${lat}</span></div>
+    <div class="item"><label>经度 WGS-84</label><span>${lng}</span></div>
+    ${gcjNote}
     <div class="item"><label>海拔</label><span>${altitude} m</span></div>
     <div class="item"><label>来源</label><span>${esc(chosen.sourceLabel)}</span></div>
   </div>
@@ -481,8 +485,20 @@ function filterIntlCandidates(query, cands) {
     return cands.filter((c) => outOfChina(c.lat, c.lng));
 }
 
+function normalizeCnAddress(query) {
+    return String(query || "").trim().replace(/\s+/g, "");
+}
+
+function extractAmapCity(query) {
+    const m = String(query || "").match(/([\u4e00-\u9fff]{2,15}?)市/);
+    return m ? m[1] : "";
+}
+
 async function geocodeAmap(query) {
-    const url = `https://restapi.amap.com/v3/geocode/geo?key=${CONFIG.amapKey}&address=${encodeURIComponent(query)}&output=json`;
+    const address = normalizeCnAddress(query);
+    const city = extractAmapCity(query);
+    let url = `https://restapi.amap.com/v3/geocode/geo?key=${CONFIG.amapKey}&address=${encodeURIComponent(address)}&output=json`;
+    if (city) url += `&city=${encodeURIComponent(city)}`;
     const data = await httpJson(url);
     if (data.status !== "1") throw new Error(data.info || "高德失败");
     const out = [];
@@ -490,11 +506,15 @@ async function geocodeAmap(query) {
         const loc = item.location || "";
         if (!loc.includes(",")) continue;
         const [lngS, latS] = loc.split(",");
-        const wgs = gcj2wgs(parseFloat(latS), parseFloat(lngS));
+        const gcjLat = parseFloat(latS);
+        const gcjLng = parseFloat(lngS);
+        const wgs = gcj2wgs(gcjLat, gcjLng);
         out.push({
             name: item.formatted_address || query,
             lat: wgs[0],
             lng: wgs[1],
+            gcjLat,
+            gcjLng,
             sourceLabel: "高德",
             elevation: null,
         });
@@ -551,7 +571,7 @@ async function resolveCandidates(query) {
     const intl = isLikelyInternational(query);
     const chain = intl
         ? [() => geocodeNominatim(query), () => geocodeOpenMeteo(query)]
-        : [() => geocodeAmap(query), () => geocodeOpenMeteo(query), () => geocodeNominatim(query)];
+        : [() => geocodeAmap(query)];
     for (const fn of chain) {
         try {
             const cands = filterIntlCandidates(query, await fn());

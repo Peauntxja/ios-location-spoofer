@@ -118,10 +118,22 @@ def gcj2wgs(lat: float, lng: float) -> tuple[float, float]:
     return wlat, wlng
 
 
+def normalize_cn_address(query: str) -> str:
+    return re.sub(r"\s+", "", query.strip())
+
+
+def extract_amap_city(query: str) -> str:
+    m = re.search(r"([\u4e00-\u9fff]{2,15}?)市", query)
+    return m.group(1) if m else ""
+
+
 def geocode_amap(query: str, key: str) -> list[Candidate]:
-    url = "https://restapi.amap.com/v3/geocode/geo?" + urllib.parse.urlencode({
-        "key": key, "address": query, "output": "json",
-    })
+    address = normalize_cn_address(query)
+    city = extract_amap_city(query)
+    params: dict[str, str] = {"key": key, "address": address, "output": "json"}
+    if city:
+        params["city"] = city
+    url = "https://restapi.amap.com/v3/geocode/geo?" + urllib.parse.urlencode(params)
     data = http_json(url)
     if data.get("status") != "1":
         raise RuntimeError(data.get("info") or "amap error")
@@ -277,7 +289,7 @@ def resolve_candidates(query: str, provider: str, amap_key: str | None) -> list[
         chain = (
             ["nominatim", "openmeteo"]
             if is_likely_international(query)
-            else ["amap", "openmeteo", "nominatim"]
+            else ["amap"]
         )
     else:
         chain = [provider]
@@ -390,6 +402,9 @@ def main() -> None:
     print(f"来源: {source_note}")
     print(f"地点: {chosen.name}")
     print(f"纬度: {chosen.lat:.6f}  经度: {chosen.lng:.6f}  海拔: {altitude}m")
+    if chosen.source == "amap":
+        gcj_lat, gcj_lng = wgs2gcj(chosen.lat, chosen.lng)
+        print(f"高德 GCJ 对照: {gcj_lng:.6f}, {gcj_lat:.6f}（应与坐标拾取器一致）")
     if elev_warn:
         print("警告: 海拔查询失败，已使用 0")
     print(argument)

@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v3.3
+// iOS Location Spoofer · Scriptable v3.5
 
-const VERSION = "3.3";
+const VERSION = "3.5";
 const CONFIG = {
     amapKey: "8ad224cc1617bdfe92edd15167be87dc",
     hAcc: 10,
@@ -214,7 +214,7 @@ function resultHtml(chosen, argument, altitude, elevWarn) {
     const mapLat = chosen.gcjLat != null ? chosen.gcjLat.toFixed(6) : lat;
     const mapLng = chosen.gcjLng != null ? chosen.gcjLng.toFixed(6) : lng;
     const mapUrl = `https://restapi.amap.com/v3/staticmap?location=${mapLng},${mapLat}&zoom=15&size=600*300&markers=mid,,A:${mapLng},${mapLat}&key=${CONFIG.amapKey}`;
-    const amapUrl = `https://uri.amap.com/marker?position=${mapLng},${mapLat}&name=${encodeURIComponent(chosen.name)}&coordinate=gaode&callnative=1`;
+    const amapUrl = `iosamap://viewMap?sourceApplication=Scriptable&poiname=${encodeURIComponent(chosen.name)}&lat=${mapLat}&lon=${mapLng}&dev=0`;
     const gcjNote = chosen.gcjLat != null
         ? `<div class="item full"><label>高德 GCJ 对照（与坐标拾取器一致）</label><span>${chosen.gcjLat.toFixed(6)}, ${chosen.gcjLng.toFixed(6)}</span></div>`
         : "";
@@ -265,6 +265,12 @@ function errorHtml(title, message) {
 
 function showPage(html) {
     const wv = new WebView();
+    wv.shouldAllowRequest = (request) => {
+        const url = String(request.url || "");
+        if (!url.startsWith("iosamap://")) return true;
+        Safari.open(url);
+        return false;
+    };
     wv.loadHTML(html);
     wv.present();
 }
@@ -286,11 +292,12 @@ function saveArgument(argument) {
     writeLocFile("argument.txt", argument);
 }
 
-async function shortAlert(title, message, actions) {
+async function shortAlert(title, message, actions, cancelAction) {
     const a = new Alert();
     a.title = title;
     a.message = message;
     actions.forEach((name) => a.addAction(name));
+    if (cancelAction) a.addCancelAction(cancelAction);
     return await a.present();
 }
 
@@ -301,7 +308,7 @@ async function askFromClipboard() {
         return null;
     }
     const preview = t.length > 40 ? t.slice(0, 40) + "…" : t;
-    const idx = await shortAlert("确认查询", preview, ["开始查询"]);
+    const idx = await shortAlert("确认查询", preview, ["开始查询"], "取消");
     return idx === 0 ? t : null;
 }
 

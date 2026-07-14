@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v3.1
+// iOS Location Spoofer · Scriptable v3.2
 
-const VERSION = "3.1";
+const VERSION = "3.2";
 const CONFIG = {
     amapKey: "8ad224cc1617bdfe92edd15167be87dc",
     hAcc: 10,
@@ -541,6 +541,38 @@ function normalizeCnAddress(query) {
     return String(query || "").trim().replace(/\s+/g, "");
 }
 
+function amapText(value) {
+    return typeof value === "string" ? value : "";
+}
+
+function amapName(value) {
+    return amapText(value) || amapText(value && value.name);
+}
+
+function parseCnAddress(query) {
+    const text = normalizeCnAddress(query);
+    let rest = text;
+    const take = (pattern) => {
+        const match = rest.match(pattern);
+        if (!match) return "";
+        rest = rest.slice(match[0].length);
+        return match[1];
+    };
+    const province = take(/^(.+?(?:省|自治区|特别行政区))/);
+    const city = take(/^(.+?市)/);
+    const district = take(/^(.+?(?:区|县|旗))/);
+    const township = take(/^(.+?(?:镇|乡|街道))/);
+    return {
+        province,
+        city,
+        district,
+        township,
+        street: (rest.match(/^(.{1,24}?(?:大道|路|街|巷|弄))/) || [])[1] || "",
+        number: (text.match(/(\d+(?:-\d+)?号)/) || [])[1] || "",
+        building: (text.match(/([A-Za-z0-9一二三四五六七八九十]+(?:号楼|栋|幢|座|单元|室))/) || [])[1] || "",
+    };
+}
+
 function extractAmapCity(query) {
     const m = String(query || "").match(/([\u4e00-\u9fff]{2,15}?)市/);
     return m ? m[1] : "";
@@ -552,13 +584,151 @@ const AMAP_LEVEL_RANK = {
     "开发区": 30, "区县": 20, "地级市": 12, "省": 6,
 };
 
-function amapLocToCand(loc, name, level) {
+function normalizeMatchText(value) {
+    return String(value || "").toLowerCase().replace(/[^\u4e00-\u9fffa-z0-9]/g, "");
+}
+
+function diceSimilarity(left, right) {
+    const a = normalizeMatchText(left);
+    const b = normalizeMatchText(right);
+    if (a === b) return a ? 1 : 0;
+    if (a.length < 2 || b.length < 2) return 0;
+    const pairs = {};
+    for (let i = 0; i < a.length - 1; i++) {
+        const pair = a.slice(i, i + 2);
+        pairs[pair] = (pairs[pair] || 0) + 1;
+    }
+    let overlap = 0;
+    for (let i = 0; i < b.length - 1; i++) {
+        const pair = b.slice(i, i + 2);
+        if (pairs[pair]) {
+            overlap++;
+            pairs[pair]--;
+        }
+    }
+    return 2 * overlap / (a.length + b.length - 2);
+}
+
+function candidateMatchTexts(candidate) {
+    return [
+        candidate.name,
+        candidate.reverseAddress,
+        Object.values(candidate.parts || {}).filter(Boolean).join(""),
+    ].filter(Boolean);
+}
+
+function extractExactAddressParts(key, known, texts) {
+    const pattern = key === "number"
+        ? /\d+(?:-\d+)?号/g
+        : /[A-Za-z0-9一二三四五六七八九十]+(?:号楼|栋|幢|座|单元|室)/g;
+    const values = known ? [known] : [];
+    texts.forEach((text) => values.push(...(String(text).match(pattern) || [])));
+    return [...new Set(values.map(normalizeMatchText).filter(Boolean))];
+}
+
+function scoreAmapCandidate(query, queryParts, candidate) {
+    const texts = candidateMatchTexts(candidate);
+    const text = normalizeMatchText(texts.join(""));
+    const details = {};
+    let conflicts = 0;
+    let score = AMAP_LEVEL_RANK[candidate.level] || 45;
+    const similarity = Math.max(...texts.map((value) => diceSimilarity(query, value)));
+    score += Math.round(similarity * 120);
+
+    const rules = [
+        ["province", 15, 30],
+        ["city", 25, 50],
+        ["district", 40, 80],
+        ["township", 30, 40],
+        ["street", 55, 80],
+        ["number", 90, 130],
+        ["building", 45, 60],
+    ];
+    for (const [key, bonus, penalty] of rules) {
+        const expected = normalizeMatchText(queryParts[key]);
+        if (!expected) continue;
+        const known = normalizeMatchText((candidate.parts || {})[key]);
+        const exactValues = key === "number" || key === "building"
+            ? extractExactAddressParts(key, known, texts)
+            : [];
+        const matched = exactValues.length ? exactValues.includes(expected) : text.includes(expected);
+        details[key] = matched;
+        if (matched) {
+            score += bonus;
+        } else if (
+            exactValues.length ||
+            (known && !known.includes(expected) && !expected.includes(known))
+        ) {
+            score -= penalty;
+            conflicts++;
+        }
+    }
+
+    let confidence = "低";
+    if (
+        (details.number && conflicts === 0) ||
+        (details.street && similarity >= 0.6) ||
+        similarity >= 0.8
+    ) {
+        confidence = "高";
+    } else if (score >= 140 && conflicts < 2) {
+        confidence = "中";
+    }
+    candidate.score = score;
+    candidate.confidence = confidence;
+    return candidate;
+}
+
+function rankAmapCandidates(query, candidates) {
+    const parts = parseCnAddress(query);
+    return candidates
+        .map((candidate) => scoreAmapCandidate(query, parts, candidate))
+        .sort((a, b) => b.score - a.score);
+}
+
+async function reverseVerifyAmapCandidate(candidate) {
+    const location = `${candidate.gcjLng},${candidate.gcjLat}`;
+    const url = `https://restapi.amap.com/v3/geocode/regeo?key=${CONFIG.amapKey}&location=${encodeURIComponent(location)}&radius=100&extensions=base&roadlevel=0&output=json`;
+    const data = await httpJson(url);
+    if (data.status !== "1" || !data.regeocode) return;
+    const component = data.regeocode.addressComponent || {};
+    const streetNumber = component.streetNumber || {};
+    const verified = {
+        province: amapText(component.province),
+        city: amapText(component.city),
+        district: amapText(component.district),
+        township: amapText(component.township),
+        street: amapText(streetNumber.street),
+        number: amapText(streetNumber.number),
+        building: amapName(component.building),
+    };
+    candidate.reverseAddress = amapText(data.regeocode.formatted_address);
+    for (const [key, value] of Object.entries(verified)) {
+        if (value) candidate.parts[key] = value;
+    }
+}
+
+async function verifyTopAmapCandidates(query, candidates) {
+    const ranked = rankAmapCandidates(query, candidates);
+    await Promise.all(ranked.slice(0, 3).map(async (candidate) => {
+        try {
+            await reverseVerifyAmapCandidate(candidate);
+        } catch (e) { /* ignore */ }
+    }));
+    return rankAmapCandidates(query, ranked);
+}
+
+function amapLocToCand(loc, name, level, parts) {
     if (!loc || !loc.includes(",")) return null;
     const [lngS, latS] = loc.split(",");
     const gcjLat = parseFloat(latS);
     const gcjLng = parseFloat(lngS);
     const wgs = gcj2wgs(gcjLat, gcjLng);
-    return { name, lat: wgs[0], lng: wgs[1], gcjLat, gcjLng, sourceLabel: "高德", elevation: null, level: level || "" };
+    return {
+        name, lat: wgs[0], lng: wgs[1], gcjLat, gcjLng,
+        sourceLabel: "高德", elevation: null, level: level || "",
+        parts: parts || {},
+    };
 }
 
 async function geocodeAmap(query) {
@@ -571,7 +741,15 @@ async function geocodeAmap(query) {
     const data = await httpJson(url);
     if (data.status !== "1") throw new Error(data.info || "高德失败");
     for (const item of data.geocodes || []) {
-        const c = amapLocToCand(item.location || "", item.formatted_address || query, item.level || "");
+        const c = amapLocToCand(item.location || "", item.formatted_address || query, item.level || "", {
+            province: amapText(item.province),
+            city: amapText(item.city),
+            district: amapText(item.district),
+            township: amapText(item.township),
+            street: amapText(item.street),
+            number: amapText(item.number),
+            building: amapName(item.building),
+        });
         if (c) out.push(c);
     }
 
@@ -583,13 +761,18 @@ async function geocodeAmap(query) {
             for (const item of poi.pois || []) {
                 const addr = typeof item.address === "string" ? item.address : "";
                 const nm = [item.name, addr].filter(Boolean).join(" ") || query;
-                const c = amapLocToCand(item.location || "", nm, "POI");
+                const c = amapLocToCand(item.location || "", nm, "POI", {
+                    province: amapText(item.pname),
+                    city: amapText(item.cityname),
+                    district: amapText(item.adname),
+                    poi: amapText(item.name),
+                    address: addr,
+                });
                 if (c) out.push(c);
             }
         }
     } catch (e) { /* ignore */ }
 
-    out.sort((a, b) => (AMAP_LEVEL_RANK[b.level] || 45) - (AMAP_LEVEL_RANK[a.level] || 45));
     const seen = {};
     const uniq = [];
     for (const c of out) {
@@ -598,7 +781,7 @@ async function geocodeAmap(query) {
         seen[k] = 1;
         uniq.push(c);
     }
-    return uniq;
+    return await verifyTopAmapCandidates(query, uniq);
 }
 
 async function geocodeOpenMeteo(query) {
@@ -669,7 +852,8 @@ async function pickCandidate(cands) {
     a.message = `共 ${cands.length} 个候选`;
     cands.forEach((c, i) => {
         const short = c.name.length > 24 ? c.name.slice(0, 24) + "…" : c.name;
-        const tag = c.level ? `[${c.level}] ` : "";
+        const labels = [c.confidence, c.level].filter(Boolean).join("/");
+        const tag = labels ? `[${labels}] ` : "";
         a.addAction(`${i + 1}.${tag}${short}`);
     });
     a.addCancelAction("取消");

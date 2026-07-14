@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v3.2
+// iOS Location Spoofer · Scriptable v3.3
 
-const VERSION = "3.2";
+const VERSION = "3.3";
 const CONFIG = {
     amapKey: "8ad224cc1617bdfe92edd15167be87dc",
     hAcc: 10,
@@ -203,6 +203,7 @@ h1{font-size:22px;font-weight:700;margin-bottom:6px;word-break:break-word}
 .steps li::before{counter-increment:step;content:counter(step);position:absolute;left:0;top:0;width:20px;height:20px;border-radius:50%;background:#2c2c2e;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .map{margin-top:10px;border-radius:12px;overflow:hidden;border:1px solid #2c2c2e}
 .map img{display:block;width:100%;height:auto}
+.map-link{display:block;margin-top:10px;padding:10px;text-align:center;text-decoration:none;color:#0a84ff;background:rgba(10,132,255,.12);border-radius:10px;font-size:14px;font-weight:600}
 .foot{margin-top:16px;text-align:center;font-size:11px;color:#636366}
 </style></head><body><div class="wrap">${body}<p class="foot">iOS Location Spoofer v${VERSION}</p></div></body></html>`;
 }
@@ -210,7 +211,10 @@ h1{font-size:22px;font-weight:700;margin-bottom:6px;word-break:break-word}
 function resultHtml(chosen, argument, altitude, elevWarn) {
     const lat = chosen.lat.toFixed(6);
     const lng = chosen.lng.toFixed(6);
-    const mapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=13&size=600x220&markers=${lat},${lng},red`;
+    const mapLat = chosen.gcjLat != null ? chosen.gcjLat.toFixed(6) : lat;
+    const mapLng = chosen.gcjLng != null ? chosen.gcjLng.toFixed(6) : lng;
+    const mapUrl = `https://restapi.amap.com/v3/staticmap?location=${mapLng},${mapLat}&zoom=15&size=600*300&markers=mid,,A:${mapLng},${mapLat}&key=${CONFIG.amapKey}`;
+    const amapUrl = `https://uri.amap.com/marker?position=${mapLng},${mapLat}&name=${encodeURIComponent(chosen.name)}&coordinate=gaode&callnative=1`;
     const gcjNote = chosen.gcjLat != null
         ? `<div class="item full"><label>高德 GCJ 对照（与坐标拾取器一致）</label><span>${chosen.gcjLat.toFixed(6)}, ${chosen.gcjLng.toFixed(6)}</span></div>`
         : "";
@@ -230,7 +234,8 @@ function resultHtml(chosen, argument, altitude, elevWarn) {
     <div class="item"><label>来源</label><span>${esc(chosen.sourceLabel)}</span></div>
   </div>
   ${elevWarn ? '<p class="warn">海拔查询失败，已使用 0</p>' : ""}
-  <div class="map"><img src="${mapUrl}" alt="map"></div>
+  <div class="map"><img src="${esc(mapUrl)}" alt="高德地图"></div>
+  <a class="map-link" href="${esc(amapUrl)}">在高德地图打开</a>
 </div>
 <div class="card">
   <h2>Shadowrocket 参数</h2>
@@ -609,6 +614,22 @@ function diceSimilarity(left, right) {
     return 2 * overlap / (a.length + b.length - 2);
 }
 
+function characterSimilarity(left, right) {
+    const a = normalizeMatchText(left);
+    const b = normalizeMatchText(right);
+    if (!a || !b) return 0;
+    const counts = {};
+    for (const char of a) counts[char] = (counts[char] || 0) + 1;
+    let overlap = 0;
+    for (const char of b) {
+        if (counts[char]) {
+            overlap++;
+            counts[char]--;
+        }
+    }
+    return 2 * overlap / (a.length + b.length);
+}
+
 function candidateMatchTexts(candidate) {
     return [
         candidate.name,
@@ -632,7 +653,9 @@ function scoreAmapCandidate(query, queryParts, candidate) {
     const details = {};
     let conflicts = 0;
     let score = AMAP_LEVEL_RANK[candidate.level] || 45;
-    const similarity = Math.max(...texts.map((value) => diceSimilarity(query, value)));
+    const similarity = Math.max(...texts.map((value) =>
+        Math.max(diceSimilarity(query, value), characterSimilarity(query, value) * 0.85)
+    ));
     score += Math.round(similarity * 120);
 
     const rules = [
@@ -731,6 +754,59 @@ function amapLocToCand(loc, name, level, parts) {
     };
 }
 
+function dedupeAmapCandidates(candidates) {
+    const seen = {};
+    return candidates.filter((candidate) => {
+        const key = candidate.lat.toFixed(5) + "," + candidate.lng.toFixed(5);
+        if (seen[key]) return false;
+        seen[key] = true;
+        return true;
+    });
+}
+
+function buildInputTipQueries(query) {
+    const text = normalizeCnAddress(query);
+    const queries = [text];
+    const parts = parseCnAddress(text);
+    const structured = parts.province || parts.city || parts.district ||
+        parts.township || parts.number || parts.building;
+    if (!structured && text.length >= 6) {
+        const split = Math.ceil(text.length / 2);
+        const context = text.slice(0, split);
+        for (const char of text.slice(split, split + 4)) queries.push(context + char);
+    }
+    return [...new Set(queries)];
+}
+
+async function geocodeAmapInputTips(query, city) {
+    const results = await Promise.all(buildInputTipQueries(query).map(async (keywords) => {
+        let url = `https://restapi.amap.com/v3/assistant/inputtips?key=${CONFIG.amapKey}&keywords=${encodeURIComponent(keywords)}&datatype=all`;
+        if (city) url += `&city=${encodeURIComponent(city)}&citylimit=true`;
+        try {
+            const data = await httpJson(url);
+            return data.status === "1" ? data.tips || [] : [];
+        } catch (e) {
+            return [];
+        }
+    }));
+    const out = [];
+    for (const item of results.flat()) {
+        const address = amapText(item.address);
+        const candidate = amapLocToCand(
+            amapText(item.location),
+            [item.name, item.district, address].filter(Boolean).join(" ") || query,
+            "POI",
+            {
+                district: amapText(item.district),
+                poi: amapText(item.name),
+                address,
+            }
+        );
+        if (candidate) out.push(candidate);
+    }
+    return out;
+}
+
 async function geocodeAmap(query) {
     const address = normalizeCnAddress(query);
     const city = extractAmapCity(query);
@@ -773,13 +849,11 @@ async function geocodeAmap(query) {
         }
     } catch (e) { /* ignore */ }
 
-    const seen = {};
-    const uniq = [];
-    for (const c of out) {
-        const k = c.lat.toFixed(5) + "," + c.lng.toFixed(5);
-        if (seen[k]) continue;
-        seen[k] = 1;
-        uniq.push(c);
+    let uniq = dedupeAmapCandidates(out);
+    const initial = rankAmapCandidates(query, uniq);
+    if (!initial.length || initial[0].confidence === "低") {
+        const tips = await geocodeAmapInputTips(query, city);
+        uniq = dedupeAmapCandidates([...uniq, ...tips]);
     }
     return await verifyTopAmapCandidates(query, uniq);
 }
@@ -845,23 +919,48 @@ async function resolveCandidates(query) {
     throw new Error(`找不到: ${query}\n${errors.join("\n")}`);
 }
 
+function shouldAutoSelect(cands) {
+    const first = cands[0];
+    if (!first) return false;
+    if (first.sourceLabel !== "高德") return cands.length === 1;
+    const gap = cands.length > 1 ? first.score - cands[1].score : Infinity;
+    return first.confidence === "高" && gap >= 60;
+}
+
 async function pickCandidate(cands) {
-    if (cands.length === 1) return cands[0];
-    const a = new Alert();
-    a.title = "选择地点";
-    a.message = `共 ${cands.length} 个候选`;
-    cands.forEach((c, i) => {
-        const short = c.name.length > 24 ? c.name.slice(0, 24) + "…" : c.name;
-        const labels = [c.confidence, c.level].filter(Boolean).join("/");
-        const tag = labels ? `[${labels}] ` : "";
-        a.addAction(`${i + 1}.${tag}${short}`);
-    });
-    a.addCancelAction("取消");
-    const idx = await a.present();
-    if (idx === -1) throw new Error("已取消");
-    const chosen = cands[idx];
-    if (!chosen) throw new Error("选择无效");
-    return chosen;
+    if (shouldAutoSelect(cands)) return cands[0];
+    while (true) {
+        const a = new Alert();
+        a.title = "选择地点";
+        a.message = `共 ${cands.length} 个候选`;
+        cands.forEach((c, i) => {
+            const short = c.name.length > 24 ? c.name.slice(0, 24) + "…" : c.name;
+            const labels = [c.confidence, c.level].filter(Boolean).join("/");
+            const tag = labels ? `[${labels}] ` : "";
+            a.addAction(`${i + 1}.${tag}${short}`);
+        });
+        a.addCancelAction("取消");
+        const idx = await a.present();
+        if (idx === -1) throw new Error("已取消");
+        const chosen = cands[idx];
+        if (!chosen) throw new Error("选择无效");
+        if (chosen.confidence !== "低") return chosen;
+        if (!chosen.reverseAddress && chosen.sourceLabel === "高德") {
+            try {
+                await reverseVerifyAmapCandidate(chosen);
+            } catch (e) { /* ignore */ }
+        }
+
+        const confirm = new Alert();
+        confirm.title = "低置信度候选";
+        confirm.message = `候选：${chosen.name}\n\n逆地理地址：${chosen.reverseAddress || "暂无完整地址"}`;
+        confirm.addAction("使用此位置");
+        if (cands.length > 1) confirm.addAction("返回重选");
+        confirm.addCancelAction("取消");
+        const action = await confirm.present();
+        if (action === 0) return chosen;
+        if (action === -1 || cands.length === 1) throw new Error("已取消");
+    }
 }
 
 async function fetchElevation(lat, lng) {

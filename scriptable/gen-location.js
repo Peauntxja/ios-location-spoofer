@@ -1,6 +1,6 @@
-// iOS Location Spoofer · Scriptable v3.0
+// iOS Location Spoofer · Scriptable v3.1
 
-const VERSION = "3.0";
+const VERSION = "3.1";
 const CONFIG = {
     amapKey: "8ad224cc1617bdfe92edd15167be87dc",
     hAcc: 10,
@@ -68,6 +68,7 @@ async function main() {
     }
 
     try {
+        const configTemplate = await ensureConfigTemplate();
         const place = await askPlace();
         if (!place) return;
 
@@ -87,6 +88,7 @@ async function main() {
 
         const altitude = Math.round(elev);
         const argument = buildArgument(chosen.lat, chosen.lng, altitude);
+        const configPath = saveFullConfig(configTemplate, argument);
         saveArgument(argument);
         Pasteboard.copyString(argument);
         if (typeof Script !== "undefined" && Script.setShortcutOutput) {
@@ -94,6 +96,7 @@ async function main() {
         }
 
         ping("定位已生成", chosen.name);
+        await DocumentPicker.export(configPath);
         showPage(resultHtml(chosen, argument, altitude, elevWarn));
     } catch (e) {
         const msg = String((e && e.message) || e || "未知错误").trim() || "未知错误";
@@ -113,6 +116,55 @@ function writeLocFile(name, text) {
     const path = FileManager.iCloud().joinPath(locDir(), name);
     FileManager.iCloud().writeString(path, text);
     return path;
+}
+
+function configTemplatePath() {
+    return FileManager.iCloud().joinPath(locDir(), "shadowrocket-template.conf");
+}
+
+function validateConfigTemplate(text) {
+    if (!text.includes("[Script]") || !text.includes("argument=") || !text.includes("[MITM]")) {
+        throw new Error("配置模板缺少 [Script]、argument= 或 [MITM]");
+    }
+}
+
+async function ensureConfigTemplate() {
+    const fm = FileManager.iCloud();
+    const savedPath = configTemplatePath();
+    if (fm.fileExists(savedPath)) {
+        const saved = fm.readString(savedPath);
+        validateConfigTemplate(saved);
+        return saved;
+    }
+
+    const idx = await shortAlert(
+        "首次使用",
+        "请选择现有的完整 Shadowrocket 配置文件。模板仅保存在 iCloud 私有目录。",
+        ["选择配置文件"]
+    );
+    if (idx !== 0) throw new Error("未导入配置模板");
+
+    const selected = await DocumentPicker.openFile();
+    const sourcePath = Array.isArray(selected) ? selected[0] : selected;
+    if (!sourcePath) throw new Error("未选择配置文件");
+    const template = FileManager.local().readString(sourcePath);
+    validateConfigTemplate(template);
+    fm.writeString(savedPath, template);
+    return template;
+}
+
+function formatDate(date) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function saveFullConfig(template, argument) {
+    let config = template.replace(/argument=[^,\r\n]*/, `argument=${argument}`);
+    const header = `# Shadowrocket: ${formatDate(new Date())}`;
+    config = /^# Shadowrocket:.*$/m.test(config)
+        ? config.replace(/^# Shadowrocket:.*$/m, header)
+        : `${header}\n${config}`;
+    return writeLocFile("ios-location-spoofer.conf", config);
 }
 
 function esc(s) {
@@ -166,7 +218,7 @@ function resultHtml(chosen, argument, altitude, elevWarn) {
 <div class="hero">
 <span class="badge ok">定位已生成</span>
 <h1>${esc(chosen.name)}</h1>
-<p class="sub">argument 已复制到剪贴板</p>
+<p class="sub">完整配置已生成并导出</p>
 </div>
 <div class="card">
   <h2>坐标信息</h2>
@@ -188,8 +240,8 @@ function resultHtml(chosen, argument, altitude, elevWarn) {
 <div class="card">
   <h2>下一步</h2>
   <ol class="steps">
-    <li>Shadowrocket → 配置 → 模块</li>
-    <li>替换 <code>argument=</code> 整行并保存</li>
+    <li>在导出菜单中选择 Shadowrocket</li>
+    <li>导入并启用新配置</li>
     <li>设置 → 隐私 → 定位服务 关开一次</li>
   </ol>
 </div>`;
